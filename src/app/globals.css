@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Great+Vibes&family=Dancing+Script:wght@400;500;600;700&family=Cinzel:wght@400;500;600;700&display=swap');
+
+@layer base {
+  :root {
+    --radius: 0.5rem;
+    --background: 240 4% 5%;
+    --foreground: 30 20% 94%;
+    --card: 240 6% 7%;
+    --card-foreground: 30 20% 94%;
+    --popover: 240 6% 7%;
+    --popover-foreground: 30 20% 94%;
+    --primary: 43 52% 54%;
+    --primary-foreground: 240 4% 5%;
+    --secondary: 240 5% 12%;
+    --secondary-foreground: 30 20% 94%;
+    --muted: 240 5% 12%;
+    --muted-foreground: 240 3% 61%;
+    --accent: 43 52% 54%;
+    --accent-foreground: 240 4% 5%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 30 20% 94%;
+    --border: 240 4% 13%;
+    --input: 240 4% 13%;
+    --ring: 43 52% 54%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  h1, h2, h3 {
+    font-family: 'Playfair Display', serif;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #1e1e24 transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: #1e1e24;
+    border-radius: 2px;
+  }
+  .gold-text {
+    background: linear-gradient(135deg, #c9a84c 0%, #e8c875 50%, #c9a84c 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .glass {
+    background: rgba(17, 17, 20, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+}
