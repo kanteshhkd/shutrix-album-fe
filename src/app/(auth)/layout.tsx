@@ -15,7 +15,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <div className="relative z-10 flex flex-col items-center text-center gap-8 max-w-md">
           <Logo size="lg" showTagline />
           <blockquote className="text-muted-foreground text-lg font-display italic leading-relaxed">
-            "Every wedding deserves an album as timeless as the love it captures."
+            &quot;Every wedding deserves an album as timeless as the love it captures.&quot;
           </blockquote>
           <div className="flex gap-4">
             {['12×36"', '300 DPI', 'Premium Templates', 'Instant Export'].map((feat) => (

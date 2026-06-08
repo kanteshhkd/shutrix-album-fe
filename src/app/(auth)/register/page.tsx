@@ -39,7 +39,8 @@ export default function RegisterPage() {
   })
 
   const onSubmit = (data: RegisterForm) => {
-    register.mutate(data)
+    const { confirm_password, ...rest } = data
+    register.mutate({ ...rest, password_confirmation: confirm_password })
   }
 
   return (

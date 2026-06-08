@@ -3,7 +3,7 @@ import { useRouter } from 'next/navigation'
 import apiClient, { getApiError } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import { useUIStore } from '@/store/uiStore'
-import type { User, LoginRequest, RegisterRequest, ApiResponse, AuthTokens } from '@/types'
+import type { User, LoginRequest, RegisterRequest, ApiResponse, LoginResponse } from '@/types'
 
 export function useCurrentUser() {
   const { isAuthenticated, setUser } = useAuthStore()
@@ -30,14 +30,12 @@ export function useLogin() {
 
   return useMutation({
     mutationFn: async (data: LoginRequest) => {
-      const res = await apiClient.post<{ message: string; token: string; token_type: string; user: User }>(
-        '/auth/login',
-        data
-      )
+      const res = await apiClient.post<LoginResponse>('/auth/login', data)
       return res.data
     },
-    onSuccess: ({ user, token }) => {
-      setAuth(user, token)
+    onSuccess: ({ user, access_token, refresh_token }) => {
+      // Use the correct field names from the API response
+      setAuth(user, access_token, refresh_token)
       queryClient.setQueryData(['currentUser'], user)
       addToast({ title: 'Welcome back!', description: `Logged in as ${user.email}`, variant: 'success' })
       router.push('/dashboard')
@@ -56,14 +54,11 @@ export function useRegister() {
 
   return useMutation({
     mutationFn: async (data: RegisterRequest) => {
-      const res = await apiClient.post<{ message: string; token: string; token_type: string; user: User }>(
-        '/auth/register',
-        data
-      )
+      const res = await apiClient.post<LoginResponse>('/auth/register', data)
       return res.data
     },
-    onSuccess: ({ user, token }) => {
-      setAuth(user, token)
+    onSuccess: ({ user, access_token, refresh_token }) => {
+      setAuth(user, access_token, refresh_token)
       queryClient.setQueryData(['currentUser'], user)
       addToast({ title: 'Account created!', description: 'Welcome to Shutrix Album Studio', variant: 'success' })
       router.push('/dashboard')

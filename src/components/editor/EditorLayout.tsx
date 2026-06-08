@@ -1,6 +1,7 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
+import { ChevronRight, ChevronLeft } from 'lucide-react'
 import { LeftSidebar } from './LeftSidebar'
 import { EditorCanvas } from './EditorCanvas'
 import { RightSidebar } from './RightSidebar'
@@ -15,8 +16,18 @@ interface EditorLayoutProps {
 
 export function EditorLayout({ albumId }: EditorLayoutProps) {
   const [showExport, setShowExport] = useState(false)
+  const [rightOpen, setRightOpen] = useState(true)
   const canvasContainerRef = useRef<HTMLDivElement>(null)
-  const { setZoom, setPan, pages, currentPageIndex } = useEditorStore()
+  const { setZoom, setPan, pages, currentPageIndex, selectedElementIds } = useEditorStore()
+
+  // Auto-open/close right panel based on selection
+  useEffect(() => {
+    if (selectedElementIds.length > 0) {
+      setRightOpen(true)
+    } else {
+      setRightOpen(false)
+    }
+  }, [selectedElementIds])
 
   const fitToScreen = () => {
     const container = canvasContainerRef.current
@@ -24,9 +35,10 @@ export function EditorLayout({ albumId }: EditorLayoutProps) {
     const page = pages[currentPageIndex]
     const w = container.offsetWidth
     const h = container.offsetHeight
-    const scaleX = (w - 80) / page.json_data.width
-    const scaleY = (h - 80) / page.json_data.height
-    const newZoom = Math.min(scaleX, scaleY, 1)
+    const padding = 60
+    const scaleX = (w - padding * 2) / page.json_data.width
+    const scaleY = (h - padding * 2) / page.json_data.height
+    const newZoom = Math.min(scaleX, scaleY)
     setZoom(newZoom)
     setPan(
       (w - page.json_data.width * newZoom) / 2,
@@ -49,8 +61,20 @@ export function EditorLayout({ albumId }: EditorLayoutProps) {
           <EditorCanvas albumId={albumId} containerRef={canvasContainerRef} />
         </div>
 
-        {/* Right sidebar */}
-        <RightSidebar />
+        {/* Right sidebar with collapsible toggle */}
+        <div className="flex shrink-0">
+          {/* Toggle strip */}
+          <button
+            onClick={() => setRightOpen((v) => !v)}
+            className="w-3.5 bg-[#0d0d10] border-l border-white/[0.06] flex items-center justify-center hover:bg-white/5 transition-colors group"
+            title={rightOpen ? 'Collapse panel' : 'Expand panel'}
+          >
+            {rightOpen
+              ? <ChevronRight className="h-3 w-3 text-muted-foreground/30 group-hover:text-muted-foreground/70" />
+              : <ChevronLeft className="h-3 w-3 text-muted-foreground/30 group-hover:text-muted-foreground/70" />}
+          </button>
+          {rightOpen && <RightSidebar />}
+        </div>
       </div>
 
       {/* Bottom timeline */}

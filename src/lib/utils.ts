@@ -67,14 +67,65 @@ export const ALBUM_SIZE_DIMENSIONS: Record<string, { width: number; height: numb
 }
 
 export const WEDDING_FONTS = [
-  'Playfair Display',
-  'Cormorant Garamond',
+  // Script & Calligraphy
   'Great Vibes',
   'Dancing Script',
+  'Pinyon Script',
+  'Alex Brush',
+  'Allura',
+  'Satisfy',
+  'Sacramento',
+  'Kaushan Script',
+  'Rouge Script',
+  'Pacifico',
+  // Serif
+  'Playfair Display',
+  'Cormorant Garamond',
   'Cinzel',
+  'EB Garamond',
+  'Libre Baskerville',
+  'Lora',
+  'Crimson Text',
+  'Gilda Display',
+  'Bodoni Moda',
+  'Cardo',
+  // Sans-serif
   'Raleway',
   'Montserrat',
+  'Josefin Sans',
+  'Nunito',
+  'Poppins',
   'Lato',
   'Inter',
+  'Work Sans',
+  'Quicksand',
+  'Open Sans',
+  // Display
+  'Abril Fatface',
+  'Bebas Neue',
+  'Oswald',
+  'Righteous',
+  // System
   'Georgia',
+  'Times New Roman',
+  'Arial',
+] as const
+
+export const FONT_CATEGORIES = [
+  { label: 'Script & Calligraphy', fonts: ['Great Vibes', 'Dancing Script', 'Pinyon Script', 'Alex Brush', 'Allura', 'Satisfy', 'Sacramento', 'Kaushan Script', 'Rouge Script', 'Pacifico'] },
+  { label: 'Serif', fonts: ['Playfair Display', 'Cormorant Garamond', 'Cinzel', 'EB Garamond', 'Libre Baskerville', 'Lora', 'Crimson Text', 'Bodoni Moda', 'Cardo'] },
+  { label: 'Sans-serif', fonts: ['Raleway', 'Montserrat', 'Josefin Sans', 'Nunito', 'Poppins', 'Lato', 'Inter', 'Work Sans', 'Quicksand', 'Open Sans'] },
+  { label: 'Display', fonts: ['Abril Fatface', 'Bebas Neue', 'Oswald', 'Righteous', 'Gilda Display'] },
+] as const
+
+export const FONT_WEIGHTS = [
+  { value: '100', label: 'Thin' },
+  { value: '200', label: 'Extra Light' },
+  { value: '300', label: 'Light' },
+  { value: '400', label: 'Regular' },
+  { value: '500', label: 'Medium' },
+  { value: '600', label: 'SemiBold' },
+  { value: '700', label: 'Bold' },
+  { value: '800', label: 'Extra Bold' },
+  { value: '900', label: 'Black' },
 ] as const

@@ -1,15 +1,47 @@
 // ─── User & Auth ─────────────────────────────────────────────────────────────
 
 export interface User {
-  id: string
+  id: number | string
   email: string
   name: string
-  avatar_url?: string
+  avatar?: string | null
+  avatar_url?: string | null
   role: 'user' | 'admin'
-  is_verified: boolean
+  plan?: string
+  source?: string
+  shutrix_user_id?: string | null
+  storage_used?: number
+  storage_limit?: number
+  storage_used_gb?: number
+  storage_limit_gb?: number
+  subscription?: Subscription | null
+  plan_limits?: {
+    max_albums: number
+    max_storage_bytes: number
+    can_export_free: boolean
+    watermark: boolean
+  }
+  is_verified?: boolean
+  email_verified_at?: string | null
   created_at: string
-  updated_at: string
-  subscription?: Subscription
+  updated_at?: string
+}
+
+// Shape returned by POST /auth/login and POST /auth/register
+export interface LoginResponse {
+  message: string
+  user: User
+  token_type: string
+  expires_in: number
+  access_token: string
+  refresh_token: string
+}
+
+export interface RefreshResponse {
+  token_type: string
+  expires_in: number
+  access_token: string
+  refresh_token: string
 }
 
 export interface AuthTokens {
@@ -27,7 +59,7 @@ export interface RegisterRequest {
   name: string
   email: string
   password: string
-  confirm_password: string
+  password_confirmation: string
 }
 
 // ─── Subscription & Plans ─────────────────────────────────────────────────────
@@ -158,8 +190,19 @@ export interface ImageElement extends BaseElement {
     height: number
   }
   border_radius: number
+  blend_mode?: string 
+  mask_shape?: 'rect' | 'circle' | 'arch' | 'star' | 'polaroid' | 'filmstrip'
   shadow?: ElementShadow
   border?: ElementBorder
+  photo_offset_x?: number
+  photo_offset_y?: number
+  photo_scale?: number
+  /** Optional RGBA/hex color overlay tint applied on top of the image */
+  tint_color?: string
+  /** Opacity of the tint overlay (0-1, default 0.4) */
+  tint_opacity?: number
+  /** Marks this as the template background — auto-locked, can't be accidentally moved */
+  is_background?: boolean
 }
 
 export interface TextElement extends BaseElement {
@@ -179,11 +222,13 @@ export interface TextElement extends BaseElement {
 
 export interface ShapeElement extends BaseElement {
   type: 'shape'
-  shape_type: 'rect' | 'ellipse' | 'line'
+  shape_type: 'rect' | 'ellipse' | 'line' | 'triangle' | 'diamond' | 'pentagon' | 'hexagon' | 'octagon' | 'star' | 'cross' | 'arch' | 'heart'
   fill: string
   stroke: string
   stroke_width: number
   corner_radius?: number
+  num_points?: number
+  inner_radius_ratio?: number
 }
 
 export interface FrameElement extends BaseElement {
@@ -254,17 +299,17 @@ export interface TemplatePage {
 export type AssetType = 'photo' | 'frame' | 'element' | 'texture'
 
 export interface Asset {
-  id: string
-  user_id: string
-  file_name: string
-  file_url: string
-  thumbnail_url?: string
+  id: number
+  url: string
+  original_name: string
   file_size: number
+  file_size_kb?: number
   mime_type: string
-  asset_type: AssetType
   width?: number
   height?: number
+  folder?: string | null
   created_at: string
+  updated_at?: string
 }
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
@@ -292,7 +337,7 @@ export interface Export {
 export interface CreateExportRequest {
   album_id: string
   export_type: ExportType
-  size: AlbumSize
+  size_preset: AlbumSize
   dpi: 300
   payment_id?: string
 }
@@ -312,22 +357,48 @@ export interface RazorpayOrder {
 }
 
 export interface CreateOrderRequest {
-  amount: number
-  currency: string
-  purpose: 'export' | 'subscription'
+  amount?: number
+  currency?: string
+  purpose?: 'export' | 'subscription' | 'template'
   album_id?: string
   export_type?: ExportType
   plan_id?: PlanId
+  payment_type?: 'template' | 'export' | 'subscription'
+  template_id?: string
 }
 
 export interface VerifyPaymentRequest {
   razorpay_order_id: string
   razorpay_payment_id: string
   razorpay_signature: string
-  purpose: 'export' | 'subscription'
+  purpose: 'export' | 'subscription' | 'template'
   album_id?: string
   export_type?: ExportType
   plan_id?: PlanId
+  template_id?: string
+}
+
+export interface TemplatePurchaseOrder {
+  order: {
+    id: string
+    amount: number
+    currency: string
+    key: string
+  }
+  template: {
+    id: number
+    name: string
+    price: number
+  }
+}
+
+export interface PaymentLinkResponse {
+  payment_url: string
+  payment_link_id: string
+  amount: number
+  currency: string
+  description: string
+  key: string
 }
 
 export interface Payment {

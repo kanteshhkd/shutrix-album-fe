@@ -133,7 +133,7 @@ export function BottomTimeline() {
         className="flex flex-col items-center justify-center w-[120px] h-[80px] rounded-md border-2 border-dashed border-border hover:border-primary/50 hover:bg-muted/30 transition-all text-muted-foreground hover:text-foreground shrink-0"
       >
         <Plus className="h-5 w-5 mb-1" />
-        <span className="text-[10px]">Add Page</span>
+        <span className="text-[10px]">Add Spread</span>
       </button>
     </div>
   )

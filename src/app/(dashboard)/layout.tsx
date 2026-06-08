@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -34,19 +34,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter()
   const pathname = usePathname()
   const logout = useLogout()
-  const [mounted, setMounted] = useState(false)
+  const [hydrated, setHydrated] = useState(false)
+  const redirected = useRef(false)
 
+  // Wait for Zustand's persist middleware to rehydrate from localStorage
+  // before making any auth decisions. Without this, on a hard refresh or
+  // after a router.push('/dashboard'), the store is momentarily empty
+  // and the layout wrongly redirects back to /login.
   useEffect(() => {
-    setMounted(true)
+    const unsub = useAuthStore.persist.onFinishHydration(() => {
+      setHydrated(true)
+    })
+    // If already hydrated (e.g., store was created earlier in the session)
+    if (useAuthStore.persist.hasHydrated()) {
+      setHydrated(true)
+    }
+    return unsub
   }, [])
 
   useEffect(() => {
-    if (mounted && !isAuthenticated) {
+    if (!hydrated) return
+    if (!isAuthenticated && !redirected.current) {
+      redirected.current = true
       router.replace('/login')
     }
-  }, [mounted, isAuthenticated, router])
+  }, [hydrated, isAuthenticated, router])
 
-  if (!mounted) return <LoadingScreen />
+  if (!hydrated) return <LoadingScreen />
   if (!isAuthenticated) return <LoadingScreen />
 
   const initials = user?.name
@@ -104,7 +118,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-2 rounded-full focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background">
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={user?.avatar_url} alt={user?.name} />
+                    <AvatarImage src={user?.avatar_url ?? undefined} alt={user?.name} />
                     <AvatarFallback className="bg-primary/20 text-primary text-xs">{initials}</AvatarFallback>
                   </Avatar>
                 </button>

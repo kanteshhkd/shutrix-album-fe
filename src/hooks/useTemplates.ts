@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/lib/api'
-import type { Template, ApiResponse, PaginatedResponse, AlbumCategory, AlbumSize } from '@/types'
+import type { Template, ApiResponse, PaginatedResponse, AlbumCategory, AlbumSize, TemplatePurchaseOrder } from '@/types'
 
 export interface CreateTemplatePayload {
   name: string
@@ -10,6 +10,8 @@ export interface CreateTemplatePayload {
   price?: number
   pages_count: number
   json_data: object
+  thumbnail_url?: string
+  preview_images?: string[]
 }
 
 interface TemplatesParams {
@@ -73,6 +75,15 @@ export function useAdminDeleteTemplate() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['templates'] })
+    },
+  })
+}
+
+export function usePurchaseTemplate() {
+  return useMutation({
+    mutationFn: async (templateId: string): Promise<TemplatePurchaseOrder> => {
+      const res = await apiClient.post(`/templates/${templateId}/purchase`)
+      return res.data?.data ?? res.data
     },
   })
 }

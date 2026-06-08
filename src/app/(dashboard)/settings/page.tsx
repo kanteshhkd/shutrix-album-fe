@@ -96,7 +96,7 @@ export default function SettingsPage() {
                 {/* Avatar */}
                 <div className="flex items-center gap-4">
                   <Avatar className="h-20 w-20">
-                    <AvatarImage src={user?.avatar_url} />
+                    <AvatarImage src={user?.avatar_url ?? undefined} />
                     <AvatarFallback className="bg-primary/20 text-primary text-xl">{initials}</AvatarFallback>
                   </Avatar>
                   <div>

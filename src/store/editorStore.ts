@@ -42,6 +42,7 @@ interface EditorState {
   deletePage: (index: number) => void
   duplicatePage: (index: number) => void
   reorderPages: (fromIndex: number, toIndex: number) => void
+  reorderElements: (fromIndex: number, toIndex: number) => void
   setZoom: (zoom: number) => void
   setPan: (x: number, y: number) => void
   setTool: (tool: EditorTool) => void
@@ -235,6 +236,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     updated.splice(toIndex, 0, moved)
     updated.forEach((p, i) => (p.page_number = i + 1))
     set({ pages: updated, currentPageIndex: toIndex, isDirty: true })
+  },
+
+  reorderElements: (fromIndex, toIndex) => {
+    get().pushHistory()
+    const { pages, currentPageIndex } = get()
+    const updated = deepClone(pages)
+    const elements = updated[currentPageIndex]?.json_data.elements
+    if (!elements) return
+    const [moved] = elements.splice(fromIndex, 1)
+    elements.splice(toIndex, 0, moved)
+    set({ pages: updated, isDirty: true })
   },
 
   setZoom: (zoom) => set({ zoom: Math.min(Math.max(zoom, 0.1), 4) }),

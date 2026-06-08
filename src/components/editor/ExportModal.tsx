@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { Download, FileImage, FileText, CheckCircle2 } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Download, FileImage, FileText, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
+import axios from 'axios'
 import {
   Dialog,
   DialogContent,
@@ -11,10 +12,10 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { RazorpayModal } from '@/components/payments/RazorpayModal'
-import { useCreateExport } from '@/hooks/useExports'
-import { useAuthStore } from '@/store/authStore'
 import { cn } from '@/lib/utils'
+import { useAlbum } from '@/hooks/useAlbums'
+import { useCreateExport, useExportStatus, useExportDownload } from '@/hooks/useExports'
+import { useOpenRazorpay, useVerifyPayment } from '@/hooks/usePayment'
 import type { ExportType, AlbumSize } from '@/types'
 
 interface ExportModalProps {
@@ -23,70 +24,166 @@ interface ExportModalProps {
   albumId: string
 }
 
-const EXPORT_TYPES: { value: ExportType; label: string; icon: React.ElementType; description: string }[] = [
-  { value: 'jpg', label: 'JPG', icon: FileImage, description: 'High quality images, smaller file size' },
-  { value: 'pdf', label: 'PDF', icon: FileText, description: 'Print-ready PDF with all pages' },
-]
+type ExportFormat = 'jpg' | 'pdf'
 
-const SIZES: { value: AlbumSize; label: string }[] = [
-  { value: '12x36', label: '12 × 36 inches' },
-  { value: '12x30', label: '12 × 30 inches' },
-  { value: '10x24', label: '10 × 24 inches' },
+interface PaymentRequiredData {
+  payment_required: true
+  amount: number
+  order: {
+    id: string
+    amount: number
+    currency: string
+    key: string
+  }
+}
+
+const FORMATS: { value: ExportFormat; label: string; icon: React.ElementType; description: string }[] = [
+  { value: 'jpg', label: 'JPG', icon: FileImage, description: 'Best for sharing, smaller size' },
+  { value: 'pdf', label: 'PDF', icon: FileText, description: 'All spreads in one print-ready file' },
 ]
 
 export function ExportModal({ open, onClose, albumId }: ExportModalProps) {
-  const [exportType, setExportType] = useState<ExportType>('jpg')
-  const [size, setSize] = useState<AlbumSize>('12x36')
-  const [showPayment, setShowPayment] = useState(false)
-  const [exported, setExported] = useState(false)
+  const [format, setFormat] = useState<ExportFormat>('jpg')
+  const [exportId, setExportId] = useState<string | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [paying, setPaying] = useState(false)
 
-  const { user } = useAuthStore()
+  const { data: album } = useAlbum(albumId)
   const createExport = useCreateExport()
+  const { data: exportJob } = useExportStatus(exportId)
+  const downloadExport = useExportDownload()
+  const openRazorpay = useOpenRazorpay()
+  const verifyPayment = useVerifyPayment()
 
-  const isPaidPlan = user?.subscription?.plan_id !== 'free'
-  const exportPrice = 99 // ₹99 per export for free users
+  // When export completes, fetch download URL and trigger download
+  useEffect(() => {
+    if (exportJob?.status !== 'completed' || !exportId) return
 
-  const handleExport = async (paymentId?: string) => {
-    await createExport.mutateAsync({
-      album_id: albumId,
-      export_type: exportType,
-      size,
-      dpi: 300,
-      payment_id: paymentId,
+    downloadExport.mutate(exportId, {
+      onSuccess: (res) => {
+        const url = res.download_url
+        if (!url) return
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `album-export.${format}`
+        link.click()
+      },
+      onError: () => {
+        setErrorMsg('Could not retrieve download URL. Please try again.')
+      },
     })
-    setExported(true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exportJob?.status, exportId])
+
+  const submitExport = (paymentId?: string) => {
+    if (!album) return
+    createExport.mutate(
+      {
+        album_id: albumId,
+        export_type: format as ExportType,
+        size_preset: album.size as AlbumSize,
+        dpi: 300,
+        ...(paymentId ? { payment_id: paymentId } : {}),
+      },
+      {
+        onSuccess: (exp) => setExportId(exp.id),
+        onError: (err) => {
+          if (axios.isAxiosError(err) && err.response?.status === 402) {
+            const data = err.response.data as PaymentRequiredData
+            if (data?.payment_required && data?.order) {
+              handlePaymentRequired(data.order, album.size as AlbumSize)
+              return
+            }
+          }
+          setErrorMsg(err instanceof Error ? err.message : 'Export failed')
+        },
+      }
+    )
   }
 
-  const handleExportClick = () => {
-    if (!isPaidPlan) {
-      setShowPayment(true)
-    } else {
-      handleExport()
-    }
+  const handlePaymentRequired = (
+    order: PaymentRequiredData['order'],
+    albumSize: AlbumSize,
+  ) => {
+    setPaying(true)
+    void openRazorpay({
+      amount: order.amount,
+      currency: order.currency,
+      order_id: order.id,
+      description: `Export album (${albumSize})`,
+      modal: {
+        ondismiss: () => setPaying(false),
+      },
+      handler: (response) => {
+        ;(async () => {
+          try {
+            const verification = await verifyPayment.mutateAsync({
+              razorpay_order_id: response.razorpay_order_id!,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              purpose: 'export',
+            })
+            setPaying(false)
+            submitExport(verification.payment_id)
+          } catch {
+            setPaying(false)
+            setErrorMsg('Payment verification failed. Please try again.')
+          }
+        })()
+      },
+    })
   }
 
-  if (exported) {
+  const handleExport = () => {
+    setErrorMsg(null)
+    setExportId(null)
+    submitExport()
+  }
+
+  const handleClose = () => {
+    setExportId(null)
+    setErrorMsg(null)
+    setPaying(false)
+    onClose()
+  }
+
+  const isProcessing =
+    paying ||
+    createExport.isPending ||
+    verifyPayment.isPending ||
+    exportJob?.status === 'pending' ||
+    exportJob?.status === 'processing' ||
+    (exportJob?.status === 'completed' && downloadExport.isPending)
+
+  const isDone = exportJob?.status === 'completed' && !downloadExport.isPending && !downloadExport.isIdle
+
+  const statusLabel = () => {
+    if (paying) return 'Waiting for payment…'
+    if (createExport.isPending) return 'Queuing export…'
+    if (verifyPayment.isPending) return 'Verifying payment…'
+    if (exportJob?.status === 'pending') return 'Waiting in queue…'
+    if (exportJob?.status === 'processing') return 'Generating export…'
+    if (exportJob?.status === 'completed' && downloadExport.isPending) return 'Preparing download…'
+    return null
+  }
+
+  if (isDone) {
     return (
-      <Dialog open={open} onOpenChange={() => { onClose(); setExported(false) }}>
+      <Dialog open={open} onOpenChange={handleClose}>
         <DialogContent className="max-w-sm text-center">
           <div className="py-6 space-y-4">
             <div className="w-16 h-16 rounded-full bg-green-900/30 flex items-center justify-center mx-auto">
               <CheckCircle2 className="h-8 w-8 text-green-400" />
             </div>
             <div>
-              <h3 className="text-xl font-display font-bold text-foreground">Export Queued!</h3>
+              <h3 className="text-xl font-semibold text-foreground">Downloaded!</h3>
               <p className="text-muted-foreground mt-2 text-sm">
-                Your album is being exported at 300 DPI. You&apos;ll be notified when it&apos;s ready for download.
+                Your album has been saved to your Downloads folder.
               </p>
             </div>
-            <div className="flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => { onClose(); setExported(false) }}>
-                Continue Editing
-              </Button>
-              <Button variant="gold" className="flex-1" onClick={() => window.open('/exports', '_blank')}>
-                View Exports
-              </Button>
-            </div>
+            <Button variant="outline" className="w-full" onClick={handleClose}>
+              Continue Editing
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -94,112 +191,84 @@ export function ExportModal({ open, onClose, albumId }: ExportModalProps) {
   }
 
   return (
-    <>
-      <Dialog open={open && !showPayment} onOpenChange={onClose}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="font-display text-xl flex items-center gap-2">
-              <Download className="h-5 w-5 text-gold" />
-              Export Album
-            </DialogTitle>
-            <DialogDescription>
-              Export your album at print-ready 300 DPI quality
-            </DialogDescription>
-          </DialogHeader>
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-xl flex items-center gap-2">
+            <Download className="h-5 w-5 text-primary" />
+            Export Album
+          </DialogTitle>
+          <DialogDescription>
+            Export is processed server-side at full resolution.
+          </DialogDescription>
+        </DialogHeader>
 
-          <div className="space-y-5">
-            {/* Export type */}
-            <div className="space-y-2">
-              <Label>Export Format</Label>
-              <div className="grid grid-cols-2 gap-3">
-                {EXPORT_TYPES.map(({ value, label, icon: Icon, description }) => (
-                  <button
-                    key={value}
-                    onClick={() => setExportType(value)}
-                    className={cn(
-                      'p-3 rounded-xl border-2 text-left transition-all',
-                      exportType === value
-                        ? 'border-primary bg-primary/10'
-                        : 'border-border bg-card hover:border-primary/50'
-                    )}
-                  >
-                    <Icon className={cn('h-6 w-6 mb-2', exportType === value ? 'text-primary' : 'text-muted-foreground')} />
-                    <p className={cn('font-semibold text-sm', exportType === value ? 'text-primary' : 'text-foreground')}>
-                      {label}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Size */}
-            <div className="space-y-2">
-              <Label>Album Size</Label>
-              <div className="space-y-2">
-                {SIZES.map(({ value, label }) => (
-                  <button
-                    key={value}
-                    onClick={() => setSize(value)}
-                    className={cn(
-                      'w-full p-3 rounded-lg border text-left text-sm flex items-center justify-between transition-all',
-                      size === value
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
-                    )}
-                  >
-                    <span>{label}</span>
-                    <span className="text-xs opacity-70">300 DPI</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Pricing notice for free users */}
-            {!isPaidPlan && (
-              <div className="p-3 bg-gold/5 border border-gold/20 rounded-lg text-sm">
-                <p className="text-gold font-medium">₹{exportPrice} per export</p>
-                <p className="text-muted-foreground mt-0.5">
-                  Upgrade to Starter for unlimited exports
-                </p>
-              </div>
-            )}
-
-            <div className="flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button
-                variant="gold"
-                className="flex-1"
-                disabled={createExport.isPending}
-                onClick={handleExportClick}
-              >
-                {createExport.isPending ? 'Queuing...' : (
-                  <>
-                    <Download className="h-4 w-4 mr-2" />
-                    {!isPaidPlan ? `Pay ₹${exportPrice} & Export` : 'Export Album'}
-                  </>
-                )}
-              </Button>
+        <div className="space-y-5 pt-1">
+          {/* Format */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground uppercase tracking-wider">Format</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {FORMATS.map(({ value, label, icon: Icon, description }) => (
+                <button
+                  key={value}
+                  onClick={() => setFormat(value)}
+                  disabled={isProcessing}
+                  className={cn(
+                    'p-3 rounded-xl border-2 text-left transition-all',
+                    format === value
+                      ? 'border-primary bg-primary/10'
+                      : 'border-border bg-card hover:border-primary/40',
+                    isProcessing && 'opacity-50 cursor-not-allowed'
+                  )}
+                >
+                  <Icon className={cn('h-5 w-5 mb-1.5', format === value ? 'text-primary' : 'text-muted-foreground')} />
+                  <p className={cn('font-semibold text-sm', format === value ? 'text-primary' : 'text-foreground')}>{label}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">{description}</p>
+                </button>
+              ))}
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
 
-      <RazorpayModal
-        open={showPayment}
-        onClose={() => setShowPayment(false)}
-        purpose="export"
-        amount={exportPrice}
-        description={`Export album as ${exportType.toUpperCase()} at ${size}"`}
-        albumId={albumId}
-        exportType={exportType}
-        onSuccess={(paymentId) => {
-          setShowPayment(false)
-          handleExport(paymentId)
-        }}
-      />
-    </>
+          {/* Info */}
+          <div className="p-3 bg-muted/30 rounded-lg text-xs text-muted-foreground leading-relaxed">
+            {album
+              ? `Exporting ${album.size}" album at 300 DPI. Processing happens server-side — download will start automatically when ready.`
+              : 'Loading album info…'}
+          </div>
+
+          {/* Status / Error */}
+          {isProcessing && statusLabel() && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              {statusLabel()}
+            </div>
+          )}
+          {errorMsg && (
+            <div className="flex items-center gap-2 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4" />
+              {errorMsg}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-3">
+            <Button variant="outline" className="flex-1" onClick={handleClose} disabled={isProcessing}>
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              className="flex-1 gap-2"
+              disabled={isProcessing || !album}
+              onClick={handleExport}
+            >
+              {isProcessing
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</>
+                : <><Download className="h-4 w-4" /> Export {format.toUpperCase()}</>
+              }
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }

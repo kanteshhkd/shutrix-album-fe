@@ -1,6 +1,10 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  eslint: {
+    // Lint is run separately via `npm run lint`. Don't block production builds.
+    ignoreDuringBuilds: true,
+  },
   webpack: (config) => {
     // Konva's Node.js build requires the `canvas` package which doesn't exist in Next.js.
     // Marking it as external prevents the build error while still allowing ssr:false dynamic imports.

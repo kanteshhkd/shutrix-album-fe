@@ -3,6 +3,11 @@ import apiClient, { getApiError } from '@/lib/api'
 import { useUIStore } from '@/store/uiStore'
 import type { Export, ApiResponse, PaginatedResponse, CreateExportRequest } from '@/types'
 
+export interface ExportDownloadResponse {
+  download_url: string
+  expires_at?: string
+}
+
 export function useExports(params?: { page?: number; per_page?: number }) {
   return useQuery({
     queryKey: ['exports', params],
@@ -42,6 +47,31 @@ export function useCreateExport() {
     },
     onError: (error) => {
       addToast({ title: 'Export failed', description: getApiError(error), variant: 'destructive' })
+    },
+  })
+}
+
+export function useExportStatus(exportId: string | null) {
+  return useQuery({
+    queryKey: ['export', exportId],
+    queryFn: async () => {
+      const res = await apiClient.get<ApiResponse<Export>>(`/exports/${exportId}`)
+      return res.data.data
+    },
+    enabled: !!exportId,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      if (status === 'pending' || status === 'processing') return 3000
+      return false
+    },
+  })
+}
+
+export function useExportDownload() {
+  return useMutation({
+    mutationFn: async (exportId: string): Promise<ExportDownloadResponse> => {
+      const res = await apiClient.get<ApiResponse<ExportDownloadResponse>>(`/exports/${exportId}/download`)
+      return res.data.data ?? res.data
     },
   })
 }

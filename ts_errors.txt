@@ -1,0 +1,21 @@
+src/components/editor/EditorCanvas.tsx(80,7): error TS2607: JSX element class does not support attributes because it does not have a 'props' property.
+src/components/editor/EditorCanvas.tsx(80,8): error TS2786: 'Konva.Group' cannot be used as a JSX component.
+  Its type 'typeof Group' is not a valid JSX element type.
+    Types of construct signatures are incompatible.
+      Type 'new (config?: ContainerConfig | undefined) => Group' is not assignable to type 'new (props: any, context: any) => Component<any, any, any>'.
+        Type 'Group' is missing the following properties from type 'Component<any, any, any>': context, setState, forceUpdate, render, and 2 more.
+src/components/editor/EditorCanvas.tsx(89,7): error TS2607: JSX element class does not support attributes because it does not have a 'props' property.
+src/components/editor/EditorCanvas.tsx(89,8): error TS2786: 'Konva.Group' cannot be used as a JSX component.
+  Its type 'typeof Group' is not a valid JSX element type.
+    Types of construct signatures are incompatible.
+      Type 'new (config?: ContainerConfig | undefined) => Group' is not assignable to type 'new (props: any, context: any) => Component<any, any, any>'.
+        Type 'Group' is missing the following properties from type 'Component<any, any, any>': context, setState, forceUpdate, render, and 2 more.
+src/components/editor/EditorCanvas.tsx(120,7): error TS2607: JSX element class does not support attributes because it does not have a 'props' property.
+src/components/editor/EditorCanvas.tsx(120,8): error TS2786: 'Konva.Group' cannot be used as a JSX component.
+  Its type 'typeof Group' is not a valid JSX element type.
+    Types of construct signatures are incompatible.
+      Type 'new (config?: ContainerConfig | undefined) => Group' is not assignable to type 'new (props: any, context: any) => Component<any, any, any>'.
+        Type 'Group' is missing the following properties from type 'Component<any, any, any>': context, setState, forceUpdate, render, and 2 more.
+src/components/editor/EditorLayout.tsx(60,43): error TS2322: Type 'RefObject<HTMLDivElement | null>' is not assignable to type 'RefObject<HTMLDivElement>'.
+  Type 'HTMLDivElement | null' is not assignable to type 'HTMLDivElement'.
+    Type 'null' is not assignable to type 'HTMLDivElement'.
