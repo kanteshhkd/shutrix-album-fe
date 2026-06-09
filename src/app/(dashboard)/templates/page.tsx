@@ -510,23 +510,51 @@ async function convertPsdToTemplateJson(
     return sorted[0][0]
   }
 
+  function trimCanvas(canvas: HTMLCanvasElement): { x: number; y: number; w: number; h: number } | null {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return null
+    const { width: cw, height: ch } = canvas
+    const data = ctx.getImageData(0, 0, cw, ch).data
+    let x0 = cw, x1 = -1, y0 = ch, y1 = -1
+    for (let cy = 0; cy < ch; cy++) {
+      for (let cx = 0; cx < cw; cx++) {
+        if (data[(cy * cw + cx) * 4 + 3] > 0) {
+          if (cx < x0) x0 = cx; if (cx > x1) x1 = cx
+          if (cy < y0) y0 = cy; if (cy > y1) y1 = cy
+        }
+      }
+    }
+    if (x1 < 0) return null
+    return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }
+  }
+
   function isOutOfBounds(x: number, y: number, w: number, h: number): boolean {
     return x >= docW || y >= docH || x + w <= 0 || y + h <= 0
   }
 
-  const processLayers = async (layers: Record<string, unknown>[]) => {
+  // parentOpacity is accumulated from ancestor groups (default 1)
+  const processLayers = async (layers: Record<string, unknown>[], parentOpacity = 1) => {
     const reversed = [...layers].reverse()
     for (const layer of reversed) {
       const children = layer.children as Record<string, unknown>[] | undefined
       if (children?.length) {
-        if (!layer.hidden) await processLayers(children)
+        if (!layer.hidden) {
+          // Accumulate group opacity into children
+          let groupOp = 1
+          if ((layer as any).opacity !== undefined) {
+            const op = (layer as any).opacity as number
+            groupOp = op > 1 ? op / 255 : op
+          }
+          await processLayers(children, parentOpacity * groupOp)
+        }
         continue
       }
 
       if (layer.hidden) continue
 
-      const x = (layer.left as number) ?? 0
-      const y = (layer.top as number) ?? 0
+      // PSD layer coordinates are natively document-absolute.
+      const x = ((layer.left as number) ?? 0)
+      const y = ((layer.top as number) ?? 0)
       const w = ((layer.right as number) ?? docW) - x
       const h = ((layer.bottom as number) ?? docH) - y
       if (w <= 0 || h <= 0) continue
@@ -535,23 +563,61 @@ async function convertPsdToTemplateJson(
         continue
       }
 
-      let opacity = 1
+      let layerOpacity = 1
       if (layer.opacity !== undefined) {
         const op = layer.opacity as number
-        opacity = op > 1 ? op / 255 : op
+        layerOpacity = op > 1 ? op / 255 : op
       }
+      // Final opacity = layer's own opacity × accumulated parent group opacity
+      const opacity = Math.min(1, Math.max(0, layerOpacity * parentOpacity))
 
       const layerName = ((layer.name as string) ?? '').toLowerCase()
       const textData = layer.text as Record<string, unknown> | undefined
 
       // ── 1. TEXT LAYER ────────────────────────────────────────────────
       if (textData) {
-        const ts = (textData.style as Record<string, unknown>) ?? {}
+        // Prefer the first styleRun style over the base style so per-run overrides win
+        const styleRuns = textData.styleRuns as Array<Record<string, unknown>> | undefined
+        const firstRunStyle = (styleRuns?.[0]?.style as Record<string, unknown>) ?? {}
+        const ts = Object.keys(firstRunStyle).length
+          ? { ...(textData.style as Record<string, unknown> ?? {}), ...firstRunStyle }
+          : (textData.style as Record<string, unknown>) ?? {}
+
         const fc = ts.fillColor as Record<string, number> | undefined
         const color = fc ? rgbToHex(fc.r ?? 255, fc.g ?? 255, fc.b ?? 255) : '#ffffff'
-        const transform = textData.transform as Record<string, number> | undefined
-        const tx = transform?.tx ?? x
-        const ty = transform?.ty ?? y
+
+        // Use exactly the document-absolute bounding box for Konva's Top-Left anchor,
+        // overriding the baseline translation matrix.
+        const tx = x
+        const ty = y
+
+        // Paragraph alignment from the first paragraph style
+        const paragraphRuns = textData.paragraphStyleRuns as Array<Record<string, unknown>> | undefined
+        const paraStyle = (paragraphRuns?.[0]?.paragraphStyle ?? textData.defaultParagraphStyle) as Record<string, unknown> | undefined
+        const justMap: Record<string, string> = {
+          left: 'left', right: 'right', center: 'center',
+          justifyLeft: 'left', justifyRight: 'right', justifyCenter: 'center', justifyAll: 'left',
+        }
+        const rawJust = (paraStyle?.justification as string) ?? 'left'
+        const text_align = (justMap[rawJust] ?? 'left') as 'left' | 'center' | 'right'
+
+        // tracking in PS is 1/1000 em; convert to px at current font size
+        const fontSize = (ts.fontSize as number) ?? 48
+        const tracking = (ts.tracking as number) ?? 0
+        const letter_spacing = Math.round((tracking / 1000) * fontSize * 10) / 10
+
+        // leading: PS stores absolute px value; convert to ratio
+        const leading = ts.leading as number | undefined
+        const line_height = leading ? Math.round((leading / fontSize) * 100) / 100 : 1.2
+
+        // font weight / style from syntheticBold / syntheticItalic or font name
+        const synBold = !!(ts.syntheticBold)
+        const synItalic = !!(ts.syntheticItalic)
+        const fontName = ((ts.font as Record<string, unknown>)?.name as string) ?? 'serif'
+        const font_weight = synBold ? '700' : '400'
+        const font_style: 'normal' | 'italic' = synItalic ? 'italic' : 'normal'
+        const text_decoration: 'none' | 'underline' = (ts.underline) ? 'underline' : 'none'
+
         elements.push({
           id: `text_${idx++}`,
           type: 'text',
@@ -559,29 +625,94 @@ async function convertPsdToTemplateJson(
           rotation: 0, opacity,
           locked: false, visible: true,
           text: (textData.text as string) ?? '',
-          font_size: (ts.fontSize as number) ?? 48,
-          font_family: ((ts.font as Record<string, unknown>)?.name as string) ?? 'serif',
-          font_weight: '400',
-          font_style: 'normal',
-          text_decoration: 'none',
-          text_align: 'left',
+          font_size: fontSize,
+          font_family: fontName,
+          font_weight,
+          font_style,
+          text_decoration,
+          text_align,
           color,
-          letter_spacing: 0,
-          line_height: 1.2,
+          letter_spacing,
+          line_height,
         })
         continue
       }
 
-      // ── 2. SOLID COLOUR FILL ─────────────────────────────────────────
+      // ── 2. PHOTO PLACEHOLDER ─────────────────────────────────────────
+      // Layers named "photo", "Photo 1", "image", etc. become empty editable slots.
+      const isPhotoPlaceholder =
+        layerName === 'photo' ||
+        layerName.startsWith('photo ') ||
+        layerName === 'image' ||
+        layerName.startsWith('image ') ||
+        layerName === 'your photo' ||
+        layerName === 'your image' ||
+        layerName.includes('place your image') ||
+        layerName.includes('place your design') ||
+        layerName.includes('your photo here') ||
+        layerName.includes('your image here') ||
+        layerName.includes('photo placeholder') ||
+        layerName.includes('image slot') ||
+        layerName.includes('drop photo here') ||
+        layerName.includes('add photo') ||
+        layerName.includes('place photo') ||
+        layerName.includes('insert photo') ||
+        layerName.includes('insert image') ||
+        layerName.includes('click to replace') ||
+        (layerName.includes('double click') && (
+          layerName.includes('place') ||
+          layerName.includes('image') ||
+          layerName.includes('photo')
+        ))
+
+      if (isPhotoPlaceholder) {
+        // For rotated smart objects layer.left/right/top/bottom is the AABB.
+        // Recover original dimensions from rotation angle so the slot fits correctly.
+        const t = (layer as any).linkedData?.descriptor?.transform as Record<string, number> | undefined
+        let px = x, py = y, pw = w, ph = h, prot = 0
+        if (t?.xx !== undefined) {
+          prot = Math.round(Math.atan2(t.xy ?? 0, t.xx ?? 1) * 180 / Math.PI)
+          if (Math.abs(prot) >= 1) {
+            const rad = Math.abs(prot) * Math.PI / 180
+            const absC = Math.abs(Math.cos(rad))
+            const absS = Math.abs(Math.sin(rad))
+            const det = absC * absC - absS * absS
+            if (Math.abs(det) > 0.01) {
+              const origW = Math.round((w * absC - h * absS) / det)
+              const origH = Math.round((h * absC - w * absS) / det)
+              if (origW > 10 && origH > 10) {
+                // Correct Konva Top-Left rotation origin to simulate Photoshop Center origin
+                const cx = x + w / 2
+                const cy = y + h / 2
+                const radC = prot * Math.PI / 180
+                px = Math.round(cx - (origW / 2) * Math.cos(radC) + (origH / 2) * Math.sin(radC))
+                py = Math.round(cy - (origW / 2) * Math.sin(radC) - (origH / 2) * Math.cos(radC))
+                pw = origW; ph = origH
+              }
+            }
+          }
+        }
+        elements.push({
+          id: `img_placeholder_${idx++}`,
+          type: 'image',
+          x: px, y: py, width: pw, height: ph,
+          rotation: prot, opacity,
+          src: '', locked: false, visible: true,
+          fit_mode: 'fill', border_radius: 0,
+        })
+        continue
+      }
+
+      // ── 3. SOLID COLOUR FILL ─────────────────────────────────────────
       const effects = layer.effects as Record<string, unknown> | undefined
       const solidFills = effects?.solidColorFill as Array<Record<string, unknown>> | undefined
       const solidColor = solidFills?.[0]?.color as Record<string, number> | undefined
       if (solidColor) {
-        const isBgSolid = !backgroundAdded && (
+        const isBg = !backgroundAdded && (
           layerName === 'background' ||
           (x <= 2 && y <= 2 && w >= docW * 0.95 && h >= docH * 0.95)
         )
-        if (isBgSolid) {
+        if (isBg) {
           background = rgbToHex(solidColor.r ?? 26, solidColor.g ?? 26, solidColor.b ?? 26)
           backgroundAdded = true
         } else {
@@ -597,104 +728,64 @@ async function convertPsdToTemplateJson(
         continue
       }
 
-      // ── 3. PHOTO PLACEHOLDER ─────────────────────────────────────────
-      const isPhotoPlaceholder =
-        layerName.includes('place your image') ||
-        layerName.includes('photo placeholder') ||
-        layerName.includes('image slot') ||
-        layerName.includes('drop photo here') ||
-        layerName.includes('add photo') ||
-        layerName.includes('place photo') ||
-        layerName.includes('insert photo') ||
-        layerName.includes('insert image') ||
-        (layerName.includes('double click to edit') && (
-          layerName.includes('place') ||
-          layerName.includes('image') ||
-          layerName.includes('photo')
-        ))
-
-      if (isPhotoPlaceholder) {
-        elements.push({
-          id: `img_placeholder_${idx++}`,
-          type: 'image',
-          x, y, width: w, height: h,
-          rotation: 0, opacity,
-          src: '',
-          locked: false, visible: true,
-          fit_mode: 'fill',
-          border_radius: 0,
-        })
-        continue
-      }
-
-      // ── 4. BACKGROUND LAYER — sample color, skip uploading ───────────
-      const BG_NAME_PATTERNS = ['background', 'bg', 'layer 0', 'base', 'backdrop']
-      const isBackgroundLayer =
-        !backgroundAdded &&
-        BG_NAME_PATTERNS.some(p => layerName === p || layerName.startsWith(p + ' '))
-
+      // ── 4. RASTER / SMART OBJECT ─────────────────────────────────────
+      // layer.canvas has PS transforms baked in (rotation, scale, effects).
+      // trimCanvas finds tight pixel bounds, giving exact document-space position.
       const layerCanvas = layer.canvas as HTMLCanvasElement | undefined
+      if (layerCanvas && !isCanvasBlank(layerCanvas) && uploadAssets) {
+        if (!backgroundAdded) {
+          const coversDoc = x <= 2 && y <= 2 && w >= docW * 0.95 && h >= docH * 0.95
+          if (coversDoc) {
+            const sampled = sampleCanvasColor(layerCanvas)
+            if (sampled) { background = sampled; backgroundAdded = true }
+          }
+        }
 
-      if (isBackgroundLayer && layerCanvas && !isCanvasBlank(layerCanvas)) {
-        const sampled = sampleCanvasColor(layerCanvas)
-        if (sampled) {
-          background = sampled
-          backgroundAdded = true
-          console.log('Background color sampled from layer:', layer.name, '→', sampled)
-          continue
+        // Smart objects store the original embedded file in layer.canvas at its
+        // original dimensions rather than the placed/scaled dimensions.
+        // Trim the original high-resolution pixels to avoid antialiasing drift, 
+        // then explicitly scale the resulting coordinate bounds into document space.
+        const cw = layerCanvas.width
+        const ch = layerCanvas.height
+        const scaleX = w / cw
+        const scaleY = h / ch
+
+        const trim = trimCanvas(layerCanvas)
+        if (trim) {
+          onProgress?.(`Uploading layer: ${(layer.name as string) ?? idx}`)
+          const trimmedCanvas = document.createElement('canvas')
+          trimmedCanvas.width = trim.w
+          trimmedCanvas.height = trim.h
+          const tCtx = trimmedCanvas.getContext('2d')
+          if (tCtx) {
+            tCtx.drawImage(layerCanvas, -trim.x, -trim.y)
+            const blob = await new Promise<Blob | null>(res => trimmedCanvas.toBlob(res, 'image/png'))
+            if (blob) {
+              const file = new File([blob], `layer_${idx}.png`, { type: 'image/png' })
+              try {
+                const uploaded = await uploadAssets([file])
+                if (uploaded?.[0]?.url) {
+                  elements.push({
+                    id: `img_${idx++}`,
+                    type: 'image',
+                    x: x + trim.x * scaleX, 
+                    y: y + trim.y * scaleY,
+                    width: trim.w * scaleX, 
+                    height: trim.h * scaleY,
+                    rotation: 0, opacity,
+                    src: uploaded[0].url,
+                    locked: false, visible: true,
+                    fit_mode: 'fill', border_radius: 0,
+                  })
+                  continue
+                }
+              } catch (e) {
+                console.warn('Layer upload failed:', layer.name, e)
+              }
+            }
+          }
         }
       }
-
-      // ── 5. RASTER LAYER — upload ─────────────────────────────────────
-const BLEND_MODE_MAP: Record<string, string> = {
-  'norm': 'source-over',
-  'mul ': 'multiply',
-  'scrn': 'screen',
-  'over': 'overlay',
-  'dark': 'darken',
-  'lite': 'lighten',
-  'hLit': 'hard-light',
-  'sLit': 'soft-light',
-  'diff': 'difference',
-  'smud': 'exclusion',
-  'div ': 'color-dodge',
-  'idiv': 'color-burn',
-  'lum ': 'luminosity',
-  'hue ': 'hue',
-  'sat ': 'saturation',
-  'colr': 'color',
-}
-
-if (layerCanvas && !isCanvasBlank(layerCanvas) && uploadAssets) {
-  onProgress?.(`Uploading layer: ${(layer.name as string) ?? idx}`)
-  const blob = await new Promise<Blob | null>((res) => layerCanvas.toBlob(res, 'image/png'))
-  if (blob) {
-    const file = new File([blob], `layer_${idx}.png`, { type: 'image/png' })
-    try {
-      const uploaded = await uploadAssets([file])
-      if (uploaded?.[0]?.url) {
-        const rawBlend = (layer.blendMode as string ?? 'norm').trim().padEnd(4, ' ').slice(0, 4)
-        const blendMode = BLEND_MODE_MAP[rawBlend] ?? 'source-over'
-        elements.push({
-          id: `img_${idx}`,
-          type: 'image',
-          x, y, width: w, height: h,
-          rotation: 0, opacity,
-          src: uploaded[0].url,
-          locked: false,
-          visible: true,
-          fit_mode: 'fill',
-          border_radius: 0,
-          blend_mode: blendMode,  // ← add this
-        })
-        idx++
-        continue
-      }
-    } catch (e) {
-      console.warn('Layer upload failed, skipping:', layer.name, e)
-    }
-  }
-}
 
       console.debug('Skipping layer:', layer.name)
     }
@@ -780,8 +871,7 @@ function AddTemplateModal({ open, onClose, onCreate }: AddTemplateModalProps) {
     try {
       const { readPsd } = await import('ag-psd')
       const buffer = await files[0].arrayBuffer()
-      // skipLayerImageData:false  → each raster layer gets a .canvas with its pixels
-      // skipCompositeImageData:true → skip the full flat composite (saves memory)
+      // skipLayerImageData:false → each layer gets layer.canvas with its pixels + transforms baked in
       const psd = readPsd(buffer, { skipCompositeImageData: true, skipLayerImageData: false })
       console.log('PSD layers:', JSON.stringify(
         (psd.children ?? []).map((l: any) => ({
