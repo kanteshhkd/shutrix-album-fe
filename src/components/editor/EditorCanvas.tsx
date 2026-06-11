@@ -58,6 +58,9 @@ function KonvaImageElement({
   cropTargetId,
   onEnterCrop,
   zoom,
+  docWidth,
+  docHeight,
+  renderIndex,
 }: {
   el: ImageElement
   isSelected: boolean
@@ -67,8 +70,35 @@ function KonvaImageElement({
   cropTargetId: string | null
   onEnterCrop: (id: string) => void
   zoom: number
+  docWidth: number
+  docHeight: number
+  renderIndex: number
 }) {
 const [image] = useImage(el.src || '','anonymous')
+
+  useEffect(() => {
+    if (!image || !el.src) return
+    const img = image as HTMLImageElement
+    console.log('[KONVA RENDER]', {
+      id: el.id,
+      x: Math.round(el.x),
+      y: Math.round(el.y),
+      width: Math.round(el.width),
+      height: Math.round(el.height),
+      naturalWidth: img.naturalWidth,
+      naturalHeight: img.naturalHeight,
+      scaleX: img.naturalWidth ? +(el.width / img.naturalWidth).toFixed(3) : null,
+      scaleY: img.naturalHeight ? +(el.height / img.naturalHeight).toFixed(3) : null,
+      cropX: null,
+      cropY: null,
+      cropWidth: null,
+      cropHeight: null,
+      clipPath: `Group(0,0,${docWidth},${docHeight})`,
+      zIndex: renderIndex,
+      outOfBounds: el.x < 0 || el.y < 0 || el.x + el.width > docWidth || el.y + el.height > docHeight,
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [image])
 
   const isCropMode = cropTargetId === el.id
   const offsetX = el.photo_offset_x ?? 0
@@ -178,23 +208,22 @@ const [image] = useImage(el.src || '','anonymous')
           cornerRadius={2}
         />
         {el.src ? (
-          <Group clipX={pad} clipY={pad} clipWidth={imgW} clipHeight={imgH}>
-            <KonvaImage
-              image={image}
-              x={pad + offsetX}
-              y={pad + offsetY}
-              width={imgW * photoScale}
-              height={imgH * photoScale}
-              draggable={isCropMode}
-              onClick={isCropMode ? (e: any) => { e.cancelBubble = true } : undefined}
-              onDragEnd={isCropMode ? (e: any) => {
-                onUpdate(el.id, {
-                  photo_offset_x: e.target.x() - pad,
-                  photo_offset_y: e.target.y() - pad,
-                } as Partial<ImageElement>)
-              } : undefined}
-            />
-          </Group>
+          <KonvaImage
+            image={image}
+            x={pad + offsetX}
+            y={pad + offsetY}
+            width={imgW * photoScale}
+            height={imgH * photoScale}
+            crop={undefined}
+            draggable={isCropMode}
+            onClick={isCropMode ? (e: any) => { e.cancelBubble = true } : undefined}
+            onDragEnd={isCropMode ? (e: any) => {
+              onUpdate(el.id, {
+                photo_offset_x: e.target.x() - pad,
+                photo_offset_y: e.target.y() - pad,
+              } as Partial<ImageElement>)
+            } : undefined}
+          />
         ) : (
           <Rect x={pad} y={pad} width={imgW} height={imgH}
             fill="rgba(0,0,0,0.001)"
@@ -224,23 +253,22 @@ const [image] = useImage(el.src || '','anonymous')
       <Group {...sharedProps} cursor={!el.src ? 'pointer' : isCropMode ? 'crosshair' : 'default'}>
         <Rect width={el.width} height={el.height} fill="#1a1a1a" cornerRadius={3} />
         {el.src ? (
-          <Group clipX={imgX} clipY={imgY} clipWidth={imgW} clipHeight={imgH}>
-            <KonvaImage
-              image={image}
-              x={imgX + offsetX}
-              y={imgY + offsetY}
-              width={imgW * photoScale}
-              height={imgH * photoScale}
-              draggable={isCropMode}
-              onClick={isCropMode ? (e: any) => { e.cancelBubble = true } : undefined}
-              onDragEnd={isCropMode ? (e: any) => {
-                onUpdate(el.id, {
-                  photo_offset_x: e.target.x() - imgX,
-                  photo_offset_y: e.target.y() - imgY,
-                } as Partial<ImageElement>)
-              } : undefined}
-            />
-          </Group>
+          <KonvaImage
+            image={image}
+            x={imgX + offsetX}
+            y={imgY + offsetY}
+            width={imgW * photoScale}
+            height={imgH * photoScale}
+            crop={undefined}
+            draggable={isCropMode}
+            onClick={isCropMode ? (e: any) => { e.cancelBubble = true } : undefined}
+            onDragEnd={isCropMode ? (e: any) => {
+              onUpdate(el.id, {
+                photo_offset_x: e.target.x() - imgX,
+                photo_offset_y: e.target.y() - imgY,
+              } as Partial<ImageElement>)
+            } : undefined}
+          />
         ) : (
           <Rect x={imgX} y={imgY} width={imgW} height={imgH}
             fill="rgba(0,0,0,0.001)"
@@ -286,7 +314,7 @@ const [image] = useImage(el.src || '','anonymous')
 
   if (clipFunc) {
     return (
-      <Group {...sharedProps} clipFunc={clipFunc} cursor={!el.src ? 'pointer' : isCropMode ? 'crosshair' : 'default'}>
+      <Group {...sharedProps} cursor={!el.src ? 'pointer' : isCropMode ? 'crosshair' : 'default'}>
         {el.src ? (
           <KonvaImage
             image={image}
@@ -352,8 +380,9 @@ const [image] = useImage(el.src || '','anonymous')
         image={image}
         width={el.width}
         height={el.height}
+        crop={undefined}
         cornerRadius={el.border_radius || 0}
-        globalCompositeOperation={(el.blend_mode as any) || 'source-over'}  // ← add
+        globalCompositeOperation={(el.blend_mode as any) || 'source-over'}
       />
         <Rect width={el.width} height={el.height} fill={el.tint_color} opacity={el.tint_opacity ?? 0.4}
           listening={false} cornerRadius={el.border_radius || 0} />
@@ -364,7 +393,9 @@ const [image] = useImage(el.src || '','anonymous')
     <KonvaImage
       {...sharedProps}
       image={image}
+      crop={undefined}
       cornerRadius={el.border_radius || 0}
+      globalCompositeOperation={(el.blend_mode as any) || 'source-over'}
     />
   )
 }
@@ -693,6 +724,7 @@ export function EditorCanvas({ albumId, containerRef }: EditorCanvasProps) {
   const [photoTargetId, setPhotoTargetId] = useState<string | null>(null)
   const [cropTargetId, setCropTargetId] = useState<string | null>(null)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; elementId: string } | null>(null)
+  const [debugOverlay, setDebugOverlay] = useState(false)
 
   const {
     pages,
@@ -809,6 +841,33 @@ export function EditorCanvas({ albumId, containerRef }: EditorCanvasProps) {
   return () => clearTimeout(timer)
 }, [elements])
 
+  useEffect(() => {
+    const layer = layerRef.current
+    if (!layer || !elements.length) return
+    const timer = setTimeout(() => {
+      const stage = layer.getStage()
+      console.log('[KONVA AUDIT] stageScaleX:', stage?.scaleX().toFixed(3),
+        '| elements:', elements.length,
+        '| page clip:', `0,0 ${layer.getStage()?.width()}×${layer.getStage()?.height()}`)
+      const rows = elements.map((el) => {
+        const node = layer.findOne(`#${el.id}`) as Konva.Node | null
+        const rect = node ? node.getClientRect({ relativeTo: layer }) : null
+        return {
+          id: el.id.slice(0, 10),
+          json: `${Math.round(el.x)},${Math.round(el.y)} ${Math.round(el.width)}×${Math.round(el.height)}`,
+          nodeX: rect ? Math.round(rect.x) : '—',
+          nodeY: rect ? Math.round(rect.y) : '—',
+          nodeW: rect ? Math.round(rect.width) : '—',
+          nodeH: rect ? Math.round(rect.height) : '—',
+          dX: rect ? Math.round(rect.x - el.x) : '—',
+          dY: rect ? Math.round(rect.y - el.y) : '—',
+        }
+      })
+      console.table(rows)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [elements])
+
   // ─── Keyboard shortcuts ───────────────────────────────────────────────────
   useEffect(() => {
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -818,6 +877,11 @@ export function EditorCanvas({ albumId, containerRef }: EditorCanvasProps) {
       if (e.key === 'Escape') {
         if (cropTargetId) { setCropTargetId(null); return }
         deselectAll()
+        return
+      }
+
+      if ((e.key === 'd' || e.key === 'D') && !e.metaKey && !e.ctrlKey) {
+        setDebugOverlay(prev => !prev)
         return
       }
 
@@ -1192,8 +1256,8 @@ export function EditorCanvas({ albumId, containerRef }: EditorCanvasProps) {
               listening={false}
             />
 
-            {/* Render elements */}
-            {elements.map((el) => {
+            {/* Render elements — sorted by PSD layer order so z-order matches Photoshop */}
+            {[...elements].sort((a, b) => ((a as any).layerOrder ?? 0) - ((b as any).layerOrder ?? 0)).map((el, renderIdx) => {
               if (!el.visible) return null
               const isSelected = selectedElementIds.includes(el.id)
 
@@ -1209,6 +1273,9 @@ export function EditorCanvas({ albumId, containerRef }: EditorCanvasProps) {
                     cropTargetId={cropTargetId}
                     onEnterCrop={handleEnterCrop}
                     zoom={zoom}
+                    docWidth={pageW}
+                    docHeight={pageH}
+                    renderIndex={renderIdx}
                   />
                 )
               }
@@ -1239,6 +1306,43 @@ export function EditorCanvas({ albumId, containerRef }: EditorCanvasProps) {
               return null
             })}
           </Group>
+
+          {/* Debug overlay — press D to toggle; orange = out of bounds, red = in bounds */}
+          {debugOverlay && (
+            <Group listening={false}>
+              <Rect
+                x={0} y={0} width={pageW} height={pageH}
+                stroke="cyan" strokeWidth={2 / zoom}
+                fill="rgba(0,200,255,0.04)"
+                dash={[8 / zoom, 4 / zoom]}
+              />
+              <KonvaText
+                x={4 / zoom} y={4 / zoom}
+                text={`CLIP 0,0 → ${pageW}×${pageH}  [D] toggle`}
+                fontSize={11 / zoom} fill="cyan" fontFamily="monospace"
+              />
+              {elements.map((el, i) => {
+                const oob = el.x < 0 || el.y < 0
+                  || el.x + el.width > pageW || el.y + el.height > pageH
+                const col = oob ? '#ff9900' : '#ff4444'
+                return (
+                  <Group key={`dbg-${el.id}`}>
+                    <Rect
+                      x={el.x} y={el.y} width={el.width} height={el.height}
+                      stroke={col} strokeWidth={1 / zoom}
+                      fill="transparent" dash={[4 / zoom, 2 / zoom]}
+                    />
+                    <KonvaText
+                      x={Math.max(-pageW * 0.5, el.x) + 2 / zoom}
+                      y={Math.max(-pageH * 0.5, el.y) + 2 / zoom}
+                      text={`[${i}] ${el.id.slice(0, 6)} ${Math.round(el.x)},${Math.round(el.y)} ${Math.round(el.width)}×${Math.round(el.height)}`}
+                      fontSize={9 / zoom} fill={col} fontFamily="monospace"
+                    />
+                  </Group>
+                )
+              })}
+            </Group>
+          )}
 
           {/* Transformer (selection handles) — draggable so you can move selection from anywhere */}
           <Transformer
