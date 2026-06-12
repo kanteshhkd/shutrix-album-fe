@@ -195,6 +195,11 @@ export default function EditorPage() {
   const { setPages, setAlbumId, reset } = useEditorStore()
   const [hydrated, setHydrated] = useState(false)
 
+  // Read template_id stashed at "Use Template" time — backend doesn't return it on GET /albums/:id
+  const [templateId] = useState<string | undefined>(() => {
+    return localStorage.getItem(`album_template_id_${albumId}`) ?? undefined
+  })
+
   const { data: album, isLoading: albumLoading } = useAlbum(albumId)
   const { data: pages, isLoading: pagesLoading } = useAlbumPages(albumId)
 
@@ -232,15 +237,34 @@ export default function EditorPage() {
 if (pages.length > 0 && !tplJson) {
   // backend pages, no fresh upload — use as-is
   const normalized = pages.map((page) => {
-    const srcWidth = (page.json_data as any)?.width ?? dimensions.width
-    const scale = dimensions.width / srcWidth
+    let parsedJson = page.json_data as any
+    if (typeof parsedJson === 'string') {
+      try {
+        parsedJson = JSON.parse(parsedJson)
+      } catch (e) {}
+    }
+
+    let actualWidth = parsedJson?.width || dimensions.width
+    let actualHeight = parsedJson?.height || dimensions.height
+
+    // Heuristic: If elements extend far beyond the stated or fallback width (e.g. 10800 elements in a 3600 canvas)
+    // this means it's a 300 DPI template page that lost its top-level dimensions (or got saved incorrectly).
+    const elements = parsedJson?.elements || []
+    const maxRight = elements.reduce((max: number, el: any) => Math.max(max, (el.x || 0) + (el.width || 0)), 0)
+    
+    if (maxRight > actualWidth * 1.5) {
+      // Force correction to 300 DPI
+      actualWidth = dimensions.width * 3
+      actualHeight = dimensions.height * 3
+    }
+
     return {
       ...page,
       json_data: {
-        width: dimensions.width,
-        height: dimensions.height,
-        background_color: extractBackgroundColor(page.json_data as unknown, page.background),
-        elements: extractPageElements(page.json_data as unknown, scale),
+        width: actualWidth,
+        height: actualHeight,
+        background_color: extractBackgroundColor(parsedJson, page.background),
+        elements: extractPageElements(parsedJson, 1),
       },
     }
   })
@@ -304,5 +328,5 @@ if (pages.length > 0 && !tplJson) {
     )
   }
 
-  return <EditorLayout albumId={albumId} />
+  return <EditorLayout albumId={albumId} templateId={templateId ?? album?.template_id} />
 }

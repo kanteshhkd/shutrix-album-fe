@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowLeft, Undo2, Redo2, ZoomIn, ZoomOut, Maximize2, MousePointer2, Hand, Type, Download, CheckCheck, Loader2 } from 'lucide-react'
+import { ArrowLeft, Undo2, Redo2, ZoomIn, ZoomOut, Maximize2, MousePointer2, Hand, Type, Download, CheckCheck, Loader2, Upload } from 'lucide-react'
 
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -12,9 +12,11 @@ import type { EditorTool } from '@/store/editorStore'
 interface ToolbarProps {
   onExport: () => void
   onFitToScreen: () => void
+  onSaveToTemplate?: () => void | Promise<void>
+  isSavingTemplate?: boolean
 }
 
-export function Toolbar({ onExport, onFitToScreen }: ToolbarProps) {
+export function Toolbar({ onExport, onFitToScreen, onSaveToTemplate, isSavingTemplate }: ToolbarProps) {
   const router = useRouter()
   const {
     zoom, setZoom, tool, setTool,
@@ -174,6 +176,29 @@ export function Toolbar({ onExport, onFitToScreen }: ToolbarProps) {
             </>
           )}
         </div>
+
+        {onSaveToTemplate && (
+          <>
+            <div className="w-px h-5 bg-white/[0.08] mx-1" />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+                  onClick={onSaveToTemplate}
+                  disabled={isSavingTemplate}
+                >
+                  {isSavingTemplate
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Upload className="h-3.5 w-3.5" />}
+                  {isSavingTemplate ? 'Saving…' : 'Update Template'}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Save layer fixes back to the master template</TooltipContent>
+            </Tooltip>
+          </>
+        )}
 
         <div className="w-px h-5 bg-white/[0.08] mx-1" />
 

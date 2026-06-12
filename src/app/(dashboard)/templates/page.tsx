@@ -3,10 +3,11 @@
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, Crown, X, Eye, Sparkles, Plus, Trash2, Upload, ImageIcon, FileUp } from 'lucide-react'
+import { Search, Crown, X, Eye, Sparkles, Plus, Trash2, Upload, ImageIcon, FileUp, Edit, MoreVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Label } from '@/components/ui/label'
 import {
   Dialog,
@@ -14,7 +15,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useTemplates, useAdminCreateTemplate, useAdminDeleteTemplate, usePurchaseTemplate } from '@/hooks/useTemplates'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { useTemplates, useAdminCreateTemplate, useAdminDeleteTemplate, usePurchaseTemplate, usePurchaseTemplateWithCredits, usePurchasedTemplates } from '@/hooks/useTemplates'
 import { useOpenRazorpay } from '@/hooks/usePayment'
 import { useCreateAlbumFromTemplate } from '@/hooks/useAlbums'
 import { useAuthStore } from '@/store/authStore'
@@ -74,6 +81,7 @@ const EMPTY_JSON = JSON.stringify(
 
 export default function TemplatesPage() {
   const [activeCategory, setActiveCategory] = useState<AlbumCategory | 'all'>('all')
+  const [activeTab, setActiveTab] = useState<'all' | 'purchased'>('all')
   const [search, setSearch] = useState('')
   const [preview, setPreview] = useState<Template | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -85,6 +93,7 @@ export default function TemplatesPage() {
   const adminCreate = useAdminCreateTemplate()
   const adminDelete = useAdminDeleteTemplate()
   const purchaseTemplate = usePurchaseTemplate()
+  const purchaseTemplateWithCredits = usePurchaseTemplateWithCredits()
   const openRazorpay = useOpenRazorpay()
   const { addToast } = useUIStore()
   const [purchasing, setPurchasing] = useState(false)
@@ -95,7 +104,16 @@ export default function TemplatesPage() {
     per_page: 24,
   })
 
-  const templates = data?.data || []
+  const { data: purchasedData, isLoading: isLoadingPurchased } = usePurchasedTemplates({
+    category: activeCategory !== 'all' ? activeCategory : undefined,
+    search: search || undefined,
+    per_page: 24,
+  }, {
+    enabled: !isAdmin, // Only fetch for non-admin users
+  })
+
+  const templates = (isAdmin || activeTab === 'all') ? (data?.data || []) : (purchasedData?.data || [])
+  const loading = (isAdmin || activeTab === 'all') ? isLoading : isLoadingPurchased
 
   const resolveTemplateJson = async (template: Template): Promise<TemplateJsonData | null> => {
     if (template.json_data) return template.json_data
@@ -126,6 +144,7 @@ export default function TemplatesPage() {
     ])
     if (album) {
       setPreview(null)
+      localStorage.setItem(`album_template_id_${album.id}`, template.id)
       if (jsonData) {
         sessionStorage.setItem(`tpl_json_${album.id}`, JSON.stringify(jsonData))
         sessionStorage.setItem(`tpl_dims_${album.id}`, JSON.stringify({ width: jsonData.width, height: jsonData.height }))
@@ -138,36 +157,63 @@ export default function TemplatesPage() {
     if (purchasing) return
     setPurchasing(true)
     try {
-      const res = await purchaseTemplate.mutateAsync(template.id)
-      await openRazorpay({
-        amount: res.order.amount,
-        currency: res.order.currency,
-        order_id: res.order.id,
-        description: `Purchase ${template.name}`,
-        handler: (response) => {
-          void response
-          ;(async () => {
-            addToast({ title: 'Payment successful!', description: `${template.name} unlocked`, variant: 'success' })
-            const [album, jsonData] = await Promise.all([
-              createFromTemplate.mutateAsync({
-                title: `Album from ${template.name}`,
-                category: template.category,
-                size: template.size,
-                template_id: template.id,
-              }),
-              resolveTemplateJson(template),
-            ])
-            if (album) {
-              if (jsonData) {
-                sessionStorage.setItem(`tpl_json_${album.id}`, JSON.stringify(jsonData))
-                sessionStorage.setItem(`tpl_dims_${album.id}`, JSON.stringify({ width: jsonData.width, height: jsonData.height }))
+      if (!isAdmin && template.is_premium && (template.credit_cost ?? 0) > 0) {
+        // Trigger purchasec API when credits are written
+        await purchaseTemplateWithCredits.mutateAsync(template.id)
+        addToast({ title: 'Template Purchased!', description: `${template.name} unlocked successfully.`, variant: 'success' })
+        
+        const [album, jsonData] = await Promise.all([
+          createFromTemplate.mutateAsync({
+            title: `Album from ${template.name}`,
+            category: template.category,
+            size: template.size,
+            template_id: template.id,
+          }),
+          resolveTemplateJson(template),
+        ])
+        if (album) {
+          localStorage.setItem(`album_template_id_${album.id}`, template.id)
+          if (jsonData) {
+            sessionStorage.setItem(`tpl_json_${album.id}`, JSON.stringify(jsonData))
+            sessionStorage.setItem(`tpl_dims_${album.id}`, JSON.stringify({ width: jsonData.width, height: jsonData.height }))
+          }
+          setPreview(null)
+          router.push(`/editor/${album.id}`)
+        }
+      } else {
+        // Fallback to Razorpay if no credits
+        const res = await purchaseTemplate.mutateAsync(template.id)
+        await openRazorpay({
+          amount: res.order.amount,
+          currency: res.order.currency,
+          order_id: res.order.id,
+          description: `Purchase ${template.name}`,
+          handler: (response) => {
+            void response
+            ;(async () => {
+              addToast({ title: 'Payment successful!', description: `${template.name} unlocked`, variant: 'success' })
+              const [album, jsonData] = await Promise.all([
+                createFromTemplate.mutateAsync({
+                  title: `Album from ${template.name}`,
+                  category: template.category,
+                  size: template.size,
+                  template_id: template.id,
+                }),
+                resolveTemplateJson(template),
+              ])
+              if (album) {
+                localStorage.setItem(`album_template_id_${album.id}`, template.id)
+                if (jsonData) {
+                  sessionStorage.setItem(`tpl_json_${album.id}`, JSON.stringify(jsonData))
+                  sessionStorage.setItem(`tpl_dims_${album.id}`, JSON.stringify({ width: jsonData.width, height: jsonData.height }))
+                }
+                setPreview(null)
+                router.push(`/editor/${album.id}`)
               }
-              setPreview(null)
-              router.push(`/editor/${album.id}`)
-            }
-          })()
-        },
-      })
+            })()
+          },
+        })
+      }
     } catch (error) {
       addToast({ title: 'Purchase failed', description: getApiError(error), variant: 'destructive' })
     } finally {
@@ -202,46 +248,68 @@ export default function TemplatesPage() {
         )}
       </motion.div>
 
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search templates..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-10"
-        />
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
-        {CATEGORIES.map((cat) => (
-          <button
-            key={cat.value}
-            onClick={() => setActiveCategory(cat.value)}
-            className={cn(
-              'px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all',
-              activeCategory === cat.value
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-card border border-border text-muted-foreground hover:text-foreground hover:border-primary/50'
-            )}
-          >
-            {cat.label}
-          </button>
-        ))}
-      </div>
-
-      {isLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="bg-card border border-border rounded-xl overflow-hidden animate-pulse">
-              <div className="aspect-[3/2] bg-surface-overlay" />
-              <div className="p-4 space-y-2">
-                <div className="h-4 bg-surface-overlay rounded w-3/4" />
-              </div>
-            </div>
-          ))}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'all' | 'purchased')} className="w-full">
+        <div className="flex items-center gap-4">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search templates..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          {!isAdmin && (
+            <TabsList className="grid grid-cols-2 w-[300px]">
+              <TabsTrigger value="all">All Templates</TabsTrigger>
+              <TabsTrigger value="purchased">Purchased</TabsTrigger>
+            </TabsList>
+          )}
         </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+
+        <TabsContent value={activeTab} className="mt-6">
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin mb-6">
+            {CATEGORIES.map((cat) => (
+              <button
+                key={cat.value}
+                onClick={() => setActiveCategory(cat.value)}
+                className={cn(
+                  'px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all',
+                  activeCategory === cat.value
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-card border border-border text-muted-foreground hover:text-foreground hover:border-primary/50'
+                )}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+
+          {loading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="bg-card border border-border rounded-xl overflow-hidden animate-pulse">
+                  <div className="aspect-[3/2] bg-surface-overlay" />
+                  <div className="p-4 space-y-2">
+                    <div className="h-4 bg-surface-overlay rounded w-3/4" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : templates.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <Sparkles className="h-16 w-16 text-muted-foreground/30 mb-4" />
+              <h3 className="text-lg font-semibold text-foreground mb-2">
+                {activeTab === 'purchased' ? 'No Purchased Templates' : 'No Templates Found'}
+              </h3>
+              <p className="text-muted-foreground max-w-sm">
+                {activeTab === 'purchased' 
+                  ? 'You haven\'t purchased any templates yet. Browse all templates to find one you like!'
+                  : 'Try adjusting your search or filter criteria.'}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           <AnimatePresence mode="popLayout">
             {templates.map((template, i) => (
               <motion.div
@@ -249,8 +317,9 @@ export default function TemplatesPage() {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
+                whileHover={{ y: -4, transition: { duration: 0.2, ease: 'easeOut' } }}
                 transition={{ duration: 0.3, delay: i * 0.03 }}
-                className="group bg-card border border-border rounded-xl overflow-hidden hover:border-gold/30 transition-all cursor-pointer"
+                className="group bg-card border border-border rounded-xl overflow-hidden hover:border-gold/50 hover:shadow-xl hover:shadow-gold/15 transition-colors cursor-pointer"
                 onClick={() => setPreview(template)}
               >
                 <div className="relative aspect-[3/2] bg-surface-overlay overflow-hidden">
@@ -270,29 +339,79 @@ export default function TemplatesPage() {
                     </div>
                   )}
                   {template.is_premium && !isAdmin && (
-                    <div className="absolute top-2 right-2">
+                    <div className="absolute top-2 right-2 z-30">
                       <Badge variant="gold" className="gap-1">
                         <Crown className="h-3 w-3" />
                         Premium
                       </Badge>
                     </div>
                   )}
-                  <div className="absolute inset-0 bg-background/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                    <Button size="sm" variant="ghost" className="text-foreground gap-1">
-                      <Eye className="h-4 w-4" />
-                      Preview
-                    </Button>
-                    {isAdmin && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-destructive hover:text-destructive gap-1"
-                        onClick={(e) => handleDelete(e, template.id)}
-                        disabled={adminDelete.isPending}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
+                  {/* 3-dot menu button */}
+                  <div className="absolute top-2 left-2 z-30">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0 bg-black/50 hover:bg-black/70 backdrop-blur-sm"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MoreVertical className="h-4 w-4 text-white" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-48">
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setPreview(template)
+                          }}
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          Preview
+                        </DropdownMenuItem>
+                        {(() => {
+                          const isPurchased = purchasedData?.data?.some(t => t.id === template.id) || activeTab === 'purchased'
+                          const canUseDirectly = isAdmin || !template.is_premium || isPurchased || (template.is_premium && (template.credit_cost ?? 0) === 0 && user?.subscription?.plan_id !== 'free')
+                          return canUseDirectly ? (
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleUseTemplate(template)
+                              }}
+                              disabled={createFromTemplate.isPending}
+                            >
+                              <Plus className="h-4 w-4 mr-2" />
+                              Use Template
+                            </DropdownMenuItem>
+                          ) : null
+                        })()}
+                        {isAdmin && (
+                          <>
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                console.log('Edit template:', template.id)
+                              }}
+                            >
+                              <Edit className="h-4 w-4 mr-2" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                const syntheticEvent = e as unknown as React.MouseEvent
+                                handleDelete(syntheticEvent, template.id)
+                              }}
+                              disabled={adminDelete.isPending}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
                 <div className="p-3">
@@ -301,8 +420,8 @@ export default function TemplatesPage() {
                     <span className="text-xs text-muted-foreground">{template.page_count} pages</span>
                     {isAdmin ? (
                       <span className="text-xs text-primary">Admin</span>
-                    ) : template.is_premium && template.price ? (
-                      <span className="text-xs text-gold font-medium">₹{template.price}</span>
+                    ) : template.is_premium && (template.credit_cost ?? 0) > 0 ? (
+                      <span className="text-xs text-gold font-medium">{template.credit_cost} credits</span>
                     ) : (
                       <span className="text-xs text-green-400">Free</span>
                     )}
@@ -312,7 +431,9 @@ export default function TemplatesPage() {
             ))}
           </AnimatePresence>
         </div>
-      )}
+          )}
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={!!preview} onOpenChange={() => setPreview(null)}>
         <DialogContent className="max-w-3xl">
@@ -356,8 +477,8 @@ export default function TemplatesPage() {
                   <span>{preview.page_count} pages • {preview.size}&quot;</span>
                   {isAdmin ? (
                     <span className="text-primary text-xs">Admin — all templates free</span>
-                  ) : preview.is_premium && preview.price ? (
-                    <span className="text-gold font-medium">₹{preview.price} one-time</span>
+                  ) : preview.is_premium && (preview.credit_cost ?? 0) > 0 ? (
+                    <span className="text-gold font-medium">{preview.credit_cost} credits</span>
                   ) : (
                     <span className="text-green-400">Free template</span>
                   )}
@@ -366,20 +487,30 @@ export default function TemplatesPage() {
                   <Button variant="outline" className="flex-1" onClick={() => setPreview(null)}>
                     <X className="h-4 w-4 mr-2" />Close
                   </Button>
-                  {!isAdmin && preview.is_premium && user?.subscription?.plan_id === 'free' ? (
-                    <>
-                      <Button variant="outline" className="flex-1 border-primary/40 text-primary hover:bg-primary/10" onClick={() => router.push('/settings#subscription')}>
-                        <Crown className="h-4 w-4 mr-2" />Upgrade Plan
+                  {(() => {
+                    const isPurchased = purchasedData?.data?.some(t => t.id === preview.id) || activeTab === 'purchased'
+                    const needsPurchase = !isAdmin && preview.is_premium && !isPurchased && ((preview.credit_cost ?? 0) > 0 || user?.subscription?.plan_id === 'free')
+                    
+                    if (needsPurchase) {
+                      return (
+                        <>
+                          {user?.subscription?.plan_id === 'free' && (
+                            <Button variant="outline" className="flex-1 border-primary/40 text-primary hover:bg-primary/10" onClick={() => router.push('/settings#subscription')}>
+                              <Crown className="h-4 w-4 mr-2" />Upgrade Plan
+                            </Button>
+                          )}
+                          <Button variant="gold" className="flex-1" disabled={purchasing || createFromTemplate.isPending} onClick={() => handleBuyTemplate(preview)}>
+                            {purchasing ? 'Processing...' : (preview.credit_cost ?? 0) > 0 ? `Buy (${preview.credit_cost} credits)` : 'Buy Template'}
+                          </Button>
+                        </>
+                      )
+                    }
+                    return (
+                      <Button variant="gold" className="flex-1" disabled={createFromTemplate.isPending} onClick={() => handleUseTemplate(preview)}>
+                        {createFromTemplate.isPending ? 'Creating...' : 'Use Template'}
                       </Button>
-                      <Button variant="gold" className="flex-1" disabled={purchasing || createFromTemplate.isPending} onClick={() => handleBuyTemplate(preview)}>
-                        {purchasing ? 'Processing...' : `Buy ₹${preview.price ? (preview.price / 100).toFixed(0) : '—'}`}
-                      </Button>
-                    </>
-                  ) : (
-                    <Button variant="gold" className="flex-1" disabled={createFromTemplate.isPending} onClick={() => handleUseTemplate(preview)}>
-                      {createFromTemplate.isPending ? 'Creating...' : 'Use Template'}
-                    </Button>
-                  )}
+                    )
+                  })()}
                 </div>
               </div>
             )
@@ -1950,7 +2081,8 @@ function AddTemplateModal({ open, onClose, onCreate }: AddTemplateModalProps) {
   const [category, setCategory] = useState<AlbumCategory>('wedding')
   const [size, setSize] = useState<AlbumSize>('12x36')
   const [isPremium, setIsPremium] = useState(false)
-  const [price, setPrice] = useState('')
+  const [creditCost, setCreditCost] = useState('0')
+  const [tags, setTags] = useState('')
   const [pagesCount, setPagesCount] = useState('1')
   const [thumbnailPreview, setThumbnailPreview] = useState('')
   const [previewImages, setPreviewImages] = useState<string[]>([])
@@ -1969,7 +2101,8 @@ function AddTemplateModal({ open, onClose, onCreate }: AddTemplateModalProps) {
     setCategory('wedding')
     setSize('12x36')
     setIsPremium(false)
-    setPrice('')
+    setCreditCost('0')
+    setTags('')
     setPagesCount('1')
     setThumbnailPreview('')
     setPreviewImages([])
@@ -2052,14 +2185,21 @@ function AddTemplateModal({ open, onClose, onCreate }: AddTemplateModalProps) {
       return
     }
 
+    const parsedTags = tags
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean)
+
     await onCreate.mutateAsync({
       name,
       category,
       size,
       is_premium: isPremium,
-      price: isPremium && price ? Math.round(parseFloat(price) * 100) : undefined,
+      is_active: true,
+      credit_cost: isPremium ? parseInt(creditCost) || 0 : 0,
       pages_count: parseInt(pagesCount) || 1,
       json_data: parsedJson,
+      tags: parsedTags.length > 0 ? parsedTags : undefined,
       thumbnail_url: thumbnailPreview || undefined,
       preview_images: previewImages.length > 0 ? previewImages : undefined,
     })
@@ -2122,32 +2262,40 @@ function AddTemplateModal({ open, onClose, onCreate }: AddTemplateModalProps) {
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Pricing</Label>
-              <div className="flex items-center gap-3 h-9">
-                <label className="flex items-center gap-2 cursor-pointer select-none text-sm">
-                  <input
-                    type="checkbox"
-                    checked={isPremium}
-                    onChange={(e) => setIsPremium(e.target.checked)}
-                    className="rounded"
-                  />
-                  Premium template
-                </label>
-              </div>
+              <Label>Tags</Label>
+              <Input
+                placeholder="cinematic, dark, wedding"
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">Comma-separated</p>
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Pricing</Label>
+            <label className="flex items-center gap-2 cursor-pointer select-none text-sm h-9">
+              <input
+                type="checkbox"
+                checked={isPremium}
+                onChange={(e) => setIsPremium(e.target.checked)}
+                className="rounded"
+              />
+              Premium template
+            </label>
           </div>
 
           {isPremium && (
             <div className="space-y-1.5">
-              <Label>Price (₹)</Label>
+              <Label>Credit Cost</Label>
               <Input
                 type="number"
                 min={0}
-                placeholder="e.g. 499"
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
+                placeholder="e.g. 2"
+                value={creditCost}
+                onChange={(e) => setCreditCost(e.target.value)}
               />
-              <p className="text-xs text-muted-foreground">Enter price in rupees. Stored as paise internally.</p>
+              <p className="text-xs text-muted-foreground">Credits charged when a user uses this template.</p>
             </div>
           )}
 
@@ -2295,3 +2443,4 @@ function AddTemplateModal({ open, onClose, onCreate }: AddTemplateModalProps) {
     </Dialog>
   )
 }
+

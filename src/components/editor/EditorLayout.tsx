@@ -1,24 +1,35 @@
 'use client'
 
-import { useRef, useState, useEffect } from 'react'
-import { ChevronRight, ChevronLeft } from 'lucide-react'
+import { useRef, useState, useCallback, useEffect } from 'react'
+import { ChevronRight, ChevronLeft, Upload } from 'lucide-react'
 import { LeftSidebar } from './LeftSidebar'
 import { EditorCanvas } from './EditorCanvas'
 import { RightSidebar } from './RightSidebar'
 import { BottomTimeline } from './BottomTimeline'
 import { Toolbar } from './Toolbar'
 import { ExportModal } from './ExportModal'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 import { useEditorStore } from '@/store/editorStore'
+import { useAuthStore } from '@/store/authStore'
+import { useUIStore } from '@/store/uiStore'
+import { useAdminUpdateTemplate } from '@/hooks/useTemplates'
 
 interface EditorLayoutProps {
   albumId: string
+  templateId?: string
 }
 
-export function EditorLayout({ albumId }: EditorLayoutProps) {
+export function EditorLayout({ albumId, templateId }: EditorLayoutProps) {
   const [showExport, setShowExport] = useState(false)
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false)
   const [rightOpen, setRightOpen] = useState(true)
   const canvasContainerRef = useRef<HTMLDivElement>(null)
   const { setZoom, setPan, pages, currentPageIndex, selectedElementIds } = useEditorStore()
+  const { user } = useAuthStore()
+  const { addToast } = useUIStore()
+  const adminUpdateTemplate = useAdminUpdateTemplate()
+  const isAdmin = user?.role === 'admin'
 
   // Auto-open/close right panel based on selection
   useEffect(() => {
@@ -28,6 +39,31 @@ export function EditorLayout({ albumId }: EditorLayoutProps) {
       setRightOpen(false)
     }
   }, [selectedElementIds])
+
+  // Reconstruct template json_data from current editor pages and PATCH the template
+  const handleSaveToTemplate = useCallback(async () => {
+    if (!templateId || !isAdmin) return
+    const state = useEditorStore.getState()
+    const firstPage = state.pages[0]
+    if (!firstPage) return
+
+    const templateJson = {
+      version: '1.0',
+      width: firstPage.json_data.width,
+      height: firstPage.json_data.height,
+      pages: state.pages.map((p) => ({
+        background: p.json_data.background_color ?? '#1a1a1a',
+        elements: p.json_data.elements,
+      })),
+    }
+
+    try {
+      await adminUpdateTemplate.mutateAsync({ id: templateId, payload: { json_data: templateJson } })
+      addToast({ title: 'Template updated', description: 'Layer fixes saved to the master template.', variant: 'success' })
+    } catch {
+      addToast({ title: 'Update failed', description: 'Could not save template changes.', variant: 'destructive' })
+    }
+  }, [templateId, isAdmin, adminUpdateTemplate, addToast])
 
   const fitToScreen = () => {
     const container = canvasContainerRef.current
@@ -49,7 +85,12 @@ export function EditorLayout({ albumId }: EditorLayoutProps) {
   return (
     <div className="flex flex-col h-screen bg-background overflow-hidden">
       {/* Top toolbar */}
-      <Toolbar onExport={() => setShowExport(true)} onFitToScreen={fitToScreen} />
+      <Toolbar
+        onExport={() => setShowExport(true)}
+        onFitToScreen={fitToScreen}
+        onSaveToTemplate={isAdmin && templateId ? () => setShowSaveConfirm(true) : undefined}
+        isSavingTemplate={adminUpdateTemplate.isPending}
+      />
 
       {/* Main editor area */}
       <div className="flex flex-1 min-h-0">
@@ -86,6 +127,37 @@ export function EditorLayout({ albumId }: EditorLayoutProps) {
         onClose={() => setShowExport(false)}
         albumId={albumId}
       />
+
+      {/* Confirm save-to-template dialog */}
+      <Dialog open={showSaveConfirm} onOpenChange={setShowSaveConfirm}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-4 w-4 text-emerald-400" />
+              Update Master Template
+            </DialogTitle>
+            <DialogDescription>
+              This will overwrite the master template's layer data with your current editor layout. All future albums created from this template will use the updated layers.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setShowSaveConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="bg-emerald-600 hover:bg-emerald-500 text-white"
+              disabled={adminUpdateTemplate.isPending}
+              onClick={async () => {
+                setShowSaveConfirm(false)
+                await handleSaveToTemplate()
+              }}
+            >
+              Confirm Update
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

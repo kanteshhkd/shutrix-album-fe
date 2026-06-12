@@ -68,7 +68,7 @@ export default function AlbumsPage() {
           <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
           <Select
             value={category}
-            onValueChange={(v) => { setCategory(v as AlbumCategory | 'all'); setPage(1) }}
+            onValueChange={(v: string) => { setCategory(v as AlbumCategory | 'all'); setPage(1) }}
           >
             <SelectTrigger className="w-44">
               <SelectValue placeholder="All categories" />

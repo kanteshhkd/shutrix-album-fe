@@ -147,7 +147,7 @@ export default function DashboardPage() {
         <h2 className="text-xl font-display font-semibold text-foreground">Quick Actions</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Card
-            className="cursor-pointer hover:border-gold/30 transition-all group"
+            className="cursor-pointer hover:border-gold/50 hover:-translate-y-1 hover:shadow-xl hover:shadow-gold/10 transition-all group"
             onClick={() => setShowCreateModal(true)}
           >
             <CardContent className="p-6 flex items-center gap-4">
@@ -162,7 +162,7 @@ export default function DashboardPage() {
           </Card>
 
           <Card
-            className="cursor-pointer hover:border-gold/30 transition-all group"
+            className="cursor-pointer hover:border-gold/50 hover:-translate-y-1 hover:shadow-xl hover:shadow-gold/10 transition-all group"
             onClick={() => router.push('/templates')}
           >
             <CardContent className="p-6 flex items-center gap-4">

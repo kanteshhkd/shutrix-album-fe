@@ -1,16 +1,18 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import {
   Image as ImageIcon, LayoutTemplate, Type, Palette, Square, Frame,
   Upload, Search, Trash2, Plus, Layers, GripVertical, Eye, EyeOff,
-  Lock, Unlock, Flower, ChevronUp, ChevronDown
+  Lock, Unlock, Flower, ChevronUp, ChevronDown, BookImage, ChevronLeft,
+  ImageOff,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useEditorStore } from '@/store/editorStore'
+import { useShutrixAlbums, useShutrixAlbumPhotos, useShutrixAlbumUpload, type ShutrixPhoto } from '@/hooks/useAlbums'
 import { useAssets, usePresignUpload, useDeleteAsset } from '@/hooks/useAssets'
 import { generateId, cn, FONT_CATEGORIES } from '@/lib/utils'
 import type { AlbumCategory, ShapeElement, TextElement, ImageElement, CanvasElement } from '@/types'
@@ -525,34 +527,35 @@ function LayersPanel() {
               <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/20 group-hover:text-muted-foreground/50 cursor-grab active:cursor-grabbing" />
               {getIcon(el)}
               <span className="flex-1 text-[11px] truncate">{getLabel(el)}</span>
-              {/* BG badge for background images */}
+              {/* BG badge */}
               {el.type === 'image' && (el as ImageElement).is_background && (
                 <span className="text-[8px] px-1 py-px rounded bg-amber-500/15 text-amber-400 shrink-0 font-medium">BG</span>
               )}
-              {/* Hidden badge when element is invisible */}
+              {/* Hidden badge */}
               {!el.visible && (
                 <span className="text-[8px] px-1 py-px rounded bg-white/10 text-muted-foreground/40 shrink-0">hidden</span>
               )}
-              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                {/* Bring Forward */}
+              {/* Always-visible layer order arrows */}
+              <div className="flex items-center shrink-0">
                 <button
                   onClick={(e) => { e.stopPropagation(); if (actualIndex < elements.length - 1) reorderElements(actualIndex, actualIndex + 1) }}
                   disabled={actualIndex === elements.length - 1}
-                  className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/10 transition-colors disabled:opacity-30 text-muted-foreground/60"
+                  className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 transition-colors disabled:opacity-20 text-muted-foreground/50 hover:text-white"
                   title="Bring Forward"
                 >
-                  <ChevronUp className="h-3.5 w-3.5" />
+                  <ChevronUp className="h-4 w-4" />
                 </button>
-                {/* Send Backward */}
                 <button
                   onClick={(e) => { e.stopPropagation(); if (actualIndex > 0) reorderElements(actualIndex, actualIndex - 1) }}
                   disabled={actualIndex === 0}
-                  className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/10 transition-colors disabled:opacity-30 text-muted-foreground/60"
+                  className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 transition-colors disabled:opacity-20 text-muted-foreground/50 hover:text-white"
                   title="Send Backward"
                 >
-                  <ChevronDown className="h-3.5 w-3.5" />
+                  <ChevronDown className="h-4 w-4" />
                 </button>
-                <div className="w-px h-3 bg-white/10 mx-0.5" />
+              </div>
+              {/* Hover-only: visibility + lock */}
+              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                 <button
                   onClick={(e) => { e.stopPropagation(); updateElement(el.id, { visible: !el.visible }) }}
                   className={cn(
@@ -582,12 +585,193 @@ function LayersPanel() {
   )
 }
 
+// ─── Album photos panel ───────────────────────────────────────────────────────
+
+function AlbumPhotosPanel({
+  albumId,
+  albumTitle,
+  onBack,
+  onAddPhoto,
+}: {
+  albumId: number
+  albumTitle: string
+  onBack: () => void
+  onAddPhoto: (url: string) => void
+}) {
+  const [offset, setOffset] = useState(0)
+  const [allPhotos, setAllPhotos] = useState<ShutrixPhoto[]>([])
+  const loadedOffsets = useRef(new Set<number>())
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const viewportRef = useRef<HTMLDivElement>(null)
+
+  const { data, isLoading, isFetching, isError } = useShutrixAlbumPhotos(albumId, offset)
+  const mediaCount = data?.media_count ?? 0
+
+  useEffect(() => {
+    if (data?.media && !isFetching && !loadedOffsets.current.has(offset)) {
+      loadedOffsets.current.add(offset)
+      setAllPhotos(prev => {
+        if (offset === 0) return data.media
+        const seen = new Set(prev.map(p => p.media_id))
+        return [...prev, ...data.media.filter(p => !seen.has(p.media_id))]
+      })
+    }
+  }, [data, isFetching, offset])
+
+  const hasMore = mediaCount > 0 && allPhotos.length < mediaCount
+
+  // Intersection Observer for infinite scroll (observe within ScrollArea viewport)
+  useEffect(() => {
+    const sentinel = sentinelRef.current
+    if (!sentinel || !hasMore || isFetching) return
+
+    // Find the ScrollArea viewport (Radix UI creates a viewport div)
+    const viewport = sentinel.closest('[data-radix-scroll-area-viewport]') as HTMLElement
+    
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isFetching) {
+          setOffset(o => o + 25)
+        }
+      },
+      { 
+        root: viewport,
+        rootMargin: '100px',
+        threshold: 0.1 
+      }
+    )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [hasMore, isFetching, allPhotos.length])
+
+  // After each batch loads, auto-fetch next page if container isn't scrollable yet
+  useEffect(() => {
+    if (!hasMore || isFetching) return
+    const el = scrollRef.current
+    if (!el) return
+    if (el.scrollHeight <= el.clientHeight + 50) {
+      setOffset(o => o + 25)
+    }
+  }, [allPhotos.length, hasMore, isFetching])
+
+  const upload = useShutrixAlbumUpload(albumId)
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop: (files) => upload.mutate(files),
+    accept: { 'image/*': ['.jpg', '.jpeg', '.png', '.webp'] },
+    maxSize: 50 * 1024 * 1024,
+    disabled: upload.isPending,
+  })
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      {/* Header */}
+      <div className="flex items-center gap-1.5 px-2 py-1.5 shrink-0 border-b border-white/[0.06]">
+        <button
+          onClick={onBack}
+          className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors text-muted-foreground/60 hover:text-white shrink-0"
+          title="Back to albums"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <p className="text-[11px] font-semibold text-white/80 truncate flex-1">{albumTitle}</p>
+        {!isLoading && !isError && (
+          <span className="text-[9px] text-muted-foreground/40 shrink-0">{mediaCount} photos</span>
+        )}
+      </div>
+
+      {/* Upload zone */}
+      <div
+        {...getRootProps()}
+        className={cn(
+          'mx-2 mt-2 mb-0.5 flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed cursor-pointer transition-all shrink-0',
+          isDragActive
+            ? 'border-primary/60 bg-primary/10 text-primary'
+            : upload.isPending
+            ? 'border-white/10 text-muted-foreground/30 cursor-default'
+            : 'border-white/10 hover:border-white/25 hover:bg-white/3 text-muted-foreground/50 hover:text-muted-foreground/80',
+        )}
+      >
+        <input {...getInputProps()} />
+        <Upload className="h-3.5 w-3.5 shrink-0" />
+        <span className="text-[10px]">
+          {upload.isPending
+            ? 'Uploading…'
+            : isDragActive
+            ? 'Drop to upload'
+            : 'Upload to this album'}
+        </span>
+      </div>
+
+      {/* Photos grid */}
+      <ScrollArea className="flex-1">
+        {isLoading && offset === 0 ? (
+          <div className="grid grid-cols-2 gap-1.5 p-2">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="aspect-square rounded-lg bg-white/5 animate-pulse" />
+            ))}
+          </div>
+        ) : isError ? (
+          <div className="flex flex-col items-center py-12 text-center px-4">
+            <ImageOff className="h-7 w-7 text-muted-foreground/20 mb-2" />
+            <p className="text-[11px] text-muted-foreground/40">Could not load photos</p>
+          </div>
+        ) : allPhotos.length === 0 ? (
+          <div className="flex flex-col items-center py-12 text-center px-4">
+            <ImageIcon className="h-7 w-7 text-muted-foreground/20 mb-2" />
+            <p className="text-[11px] text-muted-foreground/40">No photos in this album</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-1.5 p-2 pb-2">
+            {allPhotos.map((photo: ShutrixPhoto) => (
+              <div
+                key={photo.media_id}
+                className="relative aspect-square rounded-lg overflow-hidden border border-white/10 group cursor-grab active:cursor-grabbing bg-white/5"
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('assetUrl', photo.images.original)
+                  e.dataTransfer.setData('assetId', photo.media_id)
+                }}
+                onDoubleClick={() => onAddPhoto(photo.images.original)}
+              >
+                <img
+                  src={photo.images.thumb}
+                  alt={photo.filename}
+                  className="w-full h-full object-cover"
+                  draggable={false}
+                  loading="lazy"
+                />
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-end p-1">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onAddPhoto(photo.images.original) }}
+                    className="w-5 h-5 rounded bg-primary/80 flex items-center justify-center hover:bg-primary transition-colors"
+                  >
+                    <Plus className="h-3 w-3 text-primary-foreground" />
+                  </button>
+                </div>
+              </div>
+            ))}
+            {/* Infinite scroll sentinel */}
+            <div ref={sentinelRef} className="col-span-2 h-8 flex items-center justify-center">
+              {isFetching && offset > 0 && (
+                <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-primary animate-spin" />
+              )}
+            </div>
+          </div>
+        )}
+      </ScrollArea>
+    </div>
+  )
+}
+
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
-type PanelId = 'templates' | 'photos' | 'assets' | 'frames' | 'shapes' | 'text' | 'colors' | 'layers'
+type PanelId = 'templates' | 'albums' | 'photos' | 'assets' | 'frames' | 'shapes' | 'text' | 'colors' | 'layers'
 
 const NAV: { id: PanelId; icon: React.ElementType; label: string }[] = [
   { id: 'templates', icon: LayoutTemplate, label: 'Templates' },
+  { id: 'albums', icon: BookImage, label: 'Albums' },
   { id: 'photos', icon: ImageIcon, label: 'Photos' },
   { id: 'assets', icon: Flower, label: 'Elements' },
   { id: 'frames', icon: Frame, label: 'Frames' },
@@ -604,11 +788,16 @@ export function LeftSidebar() {
   const [search, setSearch] = useState('')
   const [templateCategory, setTemplateCategory] = useState<AlbumCategory | 'all'>('all')
   const [fontSearch, setFontSearch] = useState('')
+  const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(null)
 
   const { addElement, pages, currentPageIndex, selectedElementIds, updateElement, updatePageBackground, pushHistory, updateCurrentPageElements } = useEditorStore()
   const { data: assetsData } = useAssets({ asset_type: 'photo' })
   const uploadAsset = usePresignUpload()
   const deleteAsset = useDeleteAsset()
+  
+  // Need to import useShutrixAlbums from hooks
+  const { data: shutrixAlbumsData, isLoading: isLoadingShutrix } = useShutrixAlbums()
+  const shutrixAlbums = shutrixAlbumsData?.data || []
 
   const assets = assetsData?.data || []
 
@@ -761,27 +950,27 @@ export function LeftSidebar() {
     <div className="flex h-full shrink-0">
 
       {/* ── Icon rail ── */}
-      <div className="w-[52px] bg-[#0d0d10] border-r border-white/5 flex flex-col items-center pt-3 pb-4 gap-1 shrink-0 overflow-y-auto scrollbar-none">
+      <div className="w-[68px] bg-[#0d0d10] border-r border-white/5 flex flex-col items-center pt-3 pb-4 gap-0.5 shrink-0 overflow-y-auto scrollbar-none">
         {NAV.map(({ id, icon: Icon, label }) => (
           <button
             key={id}
-            onClick={() => setActivePanel(id)}
+            onClick={() => { setActivePanel(id); if (id !== 'albums') setSelectedAlbumId(null) }}
             title={label}
             className={cn(
-              'w-10 h-10 flex flex-col items-center justify-center rounded-xl gap-[3px] transition-all duration-150',
+              'w-14 h-14 flex flex-col items-center justify-center rounded-xl gap-1 transition-all duration-150',
               activePanel === id
                 ? 'bg-primary/20 text-primary'
                 : 'text-muted-foreground/40 hover:text-muted-foreground/80 hover:bg-white/5',
             )}
           >
-            <Icon className="h-[17px] w-[17px]" />
-            <span className="text-[7.5px] leading-tight font-medium">{label}</span>
+            <Icon className="h-[22px] w-[22px]" />
+            <span className="text-[8px] leading-tight font-medium">{label}</span>
           </button>
         ))}
       </div>
 
       {/* ── Content panel ── */}
-      <div className="w-[232px] flex flex-col bg-[#111116] border-r border-white/[0.06] overflow-hidden">
+      <div className="w-[320px] flex flex-col bg-[#111116] border-r border-white/[0.06] overflow-hidden">
 
         {/* Panel header */}
         <div className="h-9 px-3 flex items-center shrink-0 border-b border-white/[0.06]">
@@ -790,24 +979,92 @@ export function LeftSidebar() {
           </span>
         </div>
 
+        {/* ── Albums panel ── */}
+        {activePanel === 'albums' && (
+          selectedAlbumId === null ? (
+            // ── Album grid ──
+            <div className="flex flex-col flex-1 min-h-0">
+              <ScrollArea className="flex-1">
+                {isLoadingShutrix ? (
+                  <div className="flex flex-col gap-1.5 p-2">
+                    {[...Array(4)].map((_, i) => (
+                      <div key={i} className="aspect-[3/2] rounded-lg bg-white/5 animate-pulse" />
+                    ))}
+                  </div>
+                ) : shutrixAlbums.length === 0 ? (
+                  <div className="flex flex-col items-center py-12 text-center px-4">
+                    <BookImage className="h-8 w-8 text-muted-foreground/20 mb-2" />
+                    <p className="text-[11px] text-muted-foreground/40">No albums found</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-1.5 p-2 pb-4">
+                    {shutrixAlbums.map(album => {
+                      const coverImg = (album as any).cover_image || album.cover_image_url
+                      const albumId = (album as any).id as number
+                      return (
+                        <button
+                          key={albumId}
+                          onClick={() => setSelectedAlbumId(albumId)}
+                          className="group relative rounded-lg overflow-hidden border border-white/10 hover:border-primary/40 transition-all cursor-pointer bg-[#1a1a20] text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                        >
+                          <div className="aspect-[3/2] w-full relative">
+                            {coverImg ? (
+                              <img
+                                src={coverImg}
+                                alt={album.title}
+                                className="w-full h-full object-cover"
+                                draggable={false}
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <BookImage className="h-6 w-6 text-muted-foreground/20" />
+                              </div>
+                            )}
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-transparent" />
+                          </div>
+                          <div className="absolute bottom-0 left-0 right-0 px-1.5 pb-1.5 pt-4">
+                            <p className="text-[10px] font-medium text-white truncate leading-tight">{album.title}</p>
+                          </div>
+                          <div className="absolute inset-0 bg-primary/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </ScrollArea>
+            </div>
+          ) : (
+            // ── Album detail: photos grid ──
+            <AlbumPhotosPanel
+              albumId={selectedAlbumId}
+              albumTitle={shutrixAlbums.find(a => (a as any).id === selectedAlbumId)?.title ?? ''}
+              onBack={() => setSelectedAlbumId(null)}
+              onAddPhoto={addPhotoToCanvas}
+            />
+          )
+        )}
+
         {/* ── Templates panel ── */}
         {activePanel === 'templates' && (
           <div className="flex flex-col flex-1 min-h-0 p-2 gap-2">
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
-              <Input placeholder="Search templates..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-7 pl-7 text-xs bg-[#0d0d10] border-white/10" />
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+                <Input placeholder="Search templates..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-7 pl-7 text-xs bg-[#0d0d10] border-white/10" />
+              </div>
+              <Select value={templateCategory} onValueChange={(v) => setTemplateCategory(v as AlbumCategory | 'all')}>
+                <SelectTrigger className="h-7 text-xs bg-[#0d0d10] border-white/10 w-[140px]">
+                  <SelectValue placeholder="All categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All categories</SelectItem>
+                  {['wedding', 'pre_wedding', 'engagement', 'haldi', 'reception', 'cinematic', 'luxury', 'minimal'].map((cat) => (
+                    <SelectItem key={cat} value={cat} className="capitalize">{cat.replace('_', ' ')}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <Select value={templateCategory} onValueChange={(v) => setTemplateCategory(v as AlbumCategory | 'all')}>
-              <SelectTrigger className="h-7 text-xs bg-[#0d0d10] border-white/10">
-                <SelectValue placeholder="All categories" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All categories</SelectItem>
-                {['wedding', 'pre_wedding', 'engagement', 'haldi', 'reception', 'cinematic', 'luxury', 'minimal'].map((cat) => (
-                  <SelectItem key={cat} value={cat} className="capitalize">{cat.replace('_', ' ')}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             <ScrollArea className="flex-1">
               <div className="grid grid-cols-2 gap-1.5 pr-1">
                 {displayLocalTemplates.length === 0 && (

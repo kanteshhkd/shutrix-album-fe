@@ -8,7 +8,6 @@ import {
   MoreHorizontal,
   Edit3,
   Copy,
-  Download,
   Trash2,
   BookImage,
 } from 'lucide-react'
@@ -41,7 +40,9 @@ export function AlbumCard({ album, onDuplicate, onDelete, delay = 0 }: AlbumCard
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay }}
-      className="group relative bg-card border border-border rounded-xl overflow-hidden hover:border-gold/30 transition-all duration-300 hover:shadow-lg hover:shadow-gold/5"
+      whileHover="hovered"
+      variants={{ hovered: { y: -4, transition: { duration: 0.2, ease: 'easeOut' } } }}
+      className="relative bg-card border border-border rounded-xl overflow-hidden hover:border-gold/50 transition-colors duration-300 hover:shadow-xl hover:shadow-gold/15"
     >
       {/* Thumbnail */}
       <div
@@ -49,20 +50,37 @@ export function AlbumCard({ album, onDuplicate, onDelete, delay = 0 }: AlbumCard
         onClick={() => router.push(`/editor/${album.id}`)}
       >
         {album.cover_image_url ? (
-          <Image
-            src={album.cover_image_url}
-            alt={album.title}
-            fill
-            className="object-cover group-hover:scale-105 transition-transform duration-500"
-          />
+          <motion.div
+            className="absolute inset-0"
+            initial={{ scale: 1 }}
+            animate={{ scale: 1 }}
+            variants={{ hovered: { scale: 1.05, transition: { duration: 0.5 } } }}
+          >
+            <Image
+              src={album.cover_image_url}
+              alt={album.title}
+              fill
+              className="object-cover"
+            />
+          </motion.div>
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface-overlay">
             <BookImage className="h-10 w-10 text-muted-foreground/40" />
             <span className="text-xs text-muted-foreground/40">No cover</span>
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-background/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-        <div className="absolute bottom-3 left-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+        <motion.div
+          className="absolute inset-0 bg-gradient-to-t from-background/60 to-transparent"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 0 }}
+          variants={{ hovered: { opacity: 1, transition: { duration: 0.2 } } }}
+        />
+        <motion.div
+          className="absolute bottom-3 left-3 right-3"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 0 }}
+          variants={{ hovered: { opacity: 1, transition: { duration: 0.2 } } }}
+        >
           <Button
             size="sm"
             variant="gold"
@@ -75,7 +93,7 @@ export function AlbumCard({ album, onDuplicate, onDelete, delay = 0 }: AlbumCard
             <Edit3 className="h-3 w-3 mr-1" />
             Open Editor
           </Button>
-        </div>
+        </motion.div>
       </div>
 
       {/* Info */}
@@ -90,35 +108,41 @@ export function AlbumCard({ album, onDuplicate, onDelete, delay = 0 }: AlbumCard
               <span className="text-xs text-muted-foreground">{album.size}&quot;</span>
             </div>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => router.push(`/editor/${album.id}`)}>
-                <Edit3 className="h-4 w-4 mr-2" />
-                Open Editor
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onDuplicate(album.id)}>
-                <Copy className="h-4 w-4 mr-2" />
-                Duplicate
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => onDelete(album.id)}
-                className="text-destructive focus:text-destructive"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 0 }}
+            variants={{ hovered: { opacity: 1, transition: { duration: 0.15 } } }}
+          >
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => router.push(`/editor/${album.id}`)}>
+                  <Edit3 className="h-4 w-4 mr-2" />
+                  Open Editor
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onDuplicate(album.id)}>
+                  <Copy className="h-4 w-4 mr-2" />
+                  Duplicate
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => onDelete(album.id)}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </motion.div>
         </div>
 
         <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/50">

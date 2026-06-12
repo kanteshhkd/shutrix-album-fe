@@ -63,7 +63,27 @@ export function CreateAlbumModal({ open, onClose }: CreateAlbumModalProps) {
 
     let album
     if (mode === 'template' && selectedTemplate) {
+      const template = templates?.data.find(t => t.id === selectedTemplate)
+      if (!template) return
+
       album = await createFromTemplate.mutateAsync({ ...payload, template_id: selectedTemplate })
+      
+      if (album) {
+        localStorage.setItem(`album_template_id_${album.id}`, template.id)
+        let jsonData = template.json_data as any
+        if (!jsonData && template.json_url) {
+          try {
+            const res = await fetch(template.json_url)
+            jsonData = await res.json()
+          } catch (err) {
+            console.error('Failed to fetch template JSON:', err)
+          }
+        }
+        if (jsonData) {
+          sessionStorage.setItem(`tpl_json_${album.id}`, JSON.stringify(jsonData))
+          sessionStorage.setItem(`tpl_dims_${album.id}`, JSON.stringify({ width: jsonData.width, height: jsonData.height }))
+        }
+      }
     } else {
       album = await createAlbum.mutateAsync(payload)
     }

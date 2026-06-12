@@ -30,7 +30,7 @@ export function useLogin() {
 
   return useMutation({
     mutationFn: async (data: LoginRequest) => {
-      const res = await apiClient.post<LoginResponse>('/auth/login', data)
+      const res = await apiClient.post<LoginResponse>('/auth/shutrix', data)
       return res.data
     },
     onSuccess: ({ user, access_token, refresh_token }) => {
@@ -92,7 +92,7 @@ export function useLogout() {
   const router = useRouter()
 
   return () => {
-    apiClient.post('/auth/logout').catch(() => {})
+    apiClient.post('/auth/logout').catch(() => { })
     logout()
     queryClient.clear()
     router.push('/login')

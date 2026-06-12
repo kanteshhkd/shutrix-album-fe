@@ -274,16 +274,21 @@ export interface TemplateJsonData {
 export interface Template {
   id: string
   name: string
+  slug?: string
   category: AlbumCategory
   size: AlbumSize
   thumbnail_url?: string
   preview_images: string[]
   is_premium: boolean
+  is_active?: boolean
+  credit_cost?: number
   price?: number
   page_count: number
   pages?: TemplatePage[]
   json_data?: TemplateJsonData
+  tags?: string[]
   created_at: string
+  updated_at?: string
 }
 
 export interface TemplatePage {
